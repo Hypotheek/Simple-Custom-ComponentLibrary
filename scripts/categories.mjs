@@ -7,7 +7,11 @@ export const CATEGORIES = {
     'SColorSwatches', 'SFileUpload', 'SPinInput', 'STagInput', 'SRating'
   ],
   'Layout & surfaces': [
-    'SContainer', 'SGrid', 'SSpacer', 'SDivider', 'SSplitPane', 'SCard', 'SCollapse', 'SAccordion'
+    'SContainer', 'SGrid', 'SSpacer', 'SDivider', 'SSplitPane', 'SCard', 'SCollapse', 'SAccordion',
+    'SFlex', 'SStack', 'SHStack', 'SWrap', 'SCenter', 'SSpread', 'SEqualCols', 'SZStack', 'SGridItem',
+    'SAutoGrid', 'SBox', 'SGap', 'SPad', 'SInline', 'SAspectRatio', 'SFill', 'SSquare', 'SPosition',
+    'SOverlay', 'SFullBleed', 'STruncate', 'SClamp', 'SVisuallyHidden', 'SScrollArea', 'SShowAbove',
+    'SShowBelow', 'SBorder', 'SRounded', 'SColumns', 'SSticky'
   ],
   'Cards & media': [
     'SMediaCard', 'SProfileCard', 'SPricingCard', 'SFlipCard', 'SRibbon', 'SCompare', 'SImage',
