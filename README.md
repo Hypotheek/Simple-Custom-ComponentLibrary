@@ -1,6 +1,6 @@
 # simple-vue-components
 
-A Vue 3 component library of 120 `S`-prefixed components (`SButton`, `SCard`, `SModal`, `SSelect`, `SBarChart`, ...). Documentation lives entirely in [Storybook](https://storybook.js.org/) — there's no separate docs site to keep in sync.
+A Vue 3 component library of 150 `S`-prefixed components — widgets (`SButton`, `SCard`, `SModal`, `SSelect`, `SBarChart`, ...) and generic layout primitives (`SFlex`, `SGrid`, `SStack`, `SBox`, ...). Documentation lives entirely in [Storybook](https://storybook.js.org/) — there's no separate docs site to keep in sync.
 
 ## Export it (build a package to install elsewhere)
 

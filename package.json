@@ -1,6 +1,6 @@
 {
   "name": "simple-vue-components",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "type": "module",
   "main": "./dist/simple-vue-components.umd.cjs",
   "module": "./dist/simple-vue-components.js",

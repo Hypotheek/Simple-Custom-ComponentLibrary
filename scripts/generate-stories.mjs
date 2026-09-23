@@ -105,6 +105,43 @@ const OVERRIDES = {
   SColorSwatches: { modelValue: '#3b82f6' }
 }
 
+// Components whose Default story needs actual slot content to show anything at all --
+// a bare <SFlex /> with no children renders an empty, invisible box. args alone can't
+// supply slot content in CSF3, so these get a render()-based story with real markup
+// instead of an args-based one. Kept to the components that genuinely need it.
+const SLOT_DEMOS = {
+  SFlex: `<div style="border:1px dashed #9ca3af;padding:0.5em 1em">A</div><div style="border:1px dashed #9ca3af;padding:0.5em 1em">B</div><div style="border:1px dashed #9ca3af;padding:0.5em 1em">C</div>`,
+  SStack: `<div style="border:1px dashed #9ca3af;padding:0.5em 1em">A</div><div style="border:1px dashed #9ca3af;padding:0.5em 1em">B</div><div style="border:1px dashed #9ca3af;padding:0.5em 1em">C</div>`,
+  SHStack: `<div style="border:1px dashed #9ca3af;padding:0.5em 1em">A</div><div style="border:1px dashed #9ca3af;padding:0.5em 1em">B</div><div style="border:1px dashed #9ca3af;padding:0.5em 1em">C</div>`,
+  SWrap: Array.from({ length: 6 }, (_, i) => `<div style="border:1px dashed #9ca3af;padding:0.5em 1em">Item ${i + 1}</div>`).join(''),
+  SCenter: `<div style="border:1px dashed #9ca3af;padding:0.5em 1em">Centered</div>`,
+  SSpread: `<strong>Title</strong><div style="border:1px dashed #9ca3af;padding:0.3em 0.8em">Action</div>`,
+  SEqualCols: `<div style="border:1px dashed #9ca3af;padding:0.5em">Col A</div><div style="border:1px dashed #9ca3af;padding:0.5em">Col B</div><div style="border:1px dashed #9ca3af;padding:0.5em">Col C</div>`,
+  SZStack: `<div style="width:120px;height:120px;background:#3b82f6"></div><div style="align-self:end;justify-self:end;padding:0.2em 0.5em;background:#ef4444;color:#fff;border-radius:999px">3</div>`,
+  SGridItem: `Item`,
+  SAutoGrid: Array.from({ length: 6 }, (_, i) => `<div style="border:1px dashed #9ca3af;padding:1em">Card ${i + 1}</div>`).join(''),
+  SBox: `Boxed content`,
+  SGap: `<div style="border:1px dashed #9ca3af;padding:0.5em 1em">A</div><div style="border:1px dashed #9ca3af;padding:0.5em 1em">B</div>`,
+  SPad: `<div style="border:1px dashed #9ca3af">Padded content</div>`,
+  SInline: `<div style="border:1px dashed #9ca3af;padding:0.2em 0.6em">tag-a</div><div style="border:1px dashed #9ca3af;padding:0.2em 0.6em">tag-b</div>`,
+  SAspectRatio: `<div style="width:100%;height:100%;background:#3b82f6"></div>`,
+  SFill: `<div style="width:100%;height:100%;background:#3b82f6"></div>`,
+  SSquare: `<div style="width:100%;height:100%;background:#3b82f6"></div>`,
+  SPosition: `<div style="border:1px dashed #9ca3af;padding:0.5em 1em">Positioned</div>`,
+  SOverlay: `<div style="width:100%;height:100%;background:rgba(59,130,246,0.35)"></div>`,
+  SFullBleed: `<div style="padding:1em;background:#eef2ff;text-align:center">Full-bleed content</div>`,
+  STruncate: `This is a long line of text that should be truncated with an ellipsis instead of wrapping`,
+  SClamp: `This is a long paragraph of text meant to demonstrate multi-line clamping. It keeps going for a while so you can see where the clamp cuts it off and adds an ellipsis after the configured number of lines.`,
+  SVisuallyHidden: `Announced to screen readers only`,
+  SScrollArea: Array.from({ length: 8 }, (_, i) => `<p>Paragraph ${i + 1} of scrollable content.</p>`).join(''),
+  SShowAbove: `Visible at or above the breakpoint`,
+  SShowBelow: `Visible below the breakpoint`,
+  SBorder: `<div style="padding:0.5em 1em">Bordered content</div>`,
+  SRounded: `<div style="width:120px;height:80px;background:#3b82f6"></div>`,
+  SColumns: `This text flows across multiple CSS columns. Add enough of it here so more than one column actually fills up, which is the only way to see the column layout doing anything at all.`,
+  SSticky: `<div style="padding:0.5em 1em;background:#eef2ff">Sticky bar</div>`
+}
+
 function toLiteral(value, indent = '  ') {
   return JSON.stringify(value, null, 2).replace(/\n/g, `\n${indent}`)
 }
@@ -115,10 +152,15 @@ function generate(file) {
   const literal = extractPropsLiteral(source)
   const args = { ...(literal ? extractDefaults(literal) : {}), ...(OVERRIDES[name] ?? {}) }
   const category = categoryOf(name)
+  const slot = SLOT_DEMOS[name]
 
-  const body = Object.keys(args).length
-    ? `export const Default = {\n  args: ${toLiteral(args)}\n}\n`
-    : `export const Default = {}\n`
+  let body
+  if (slot) {
+    const argsLine = Object.keys(args).length ? `\n  args: ${toLiteral(args, '    ')},` : ''
+    body = `export const Default = {${argsLine}\n  render: (args) => ({\n    components: { ${name} },\n    setup() {\n      return { args }\n    },\n    template: \`<${name} v-bind="args">${slot}</${name}>\`\n  })\n}\n`
+  } else {
+    body = Object.keys(args).length ? `export const Default = {\n  args: ${toLiteral(args)}\n}\n` : `export const Default = {}\n`
+  }
 
   return `import ${name} from './${name}.vue'\n\nexport default {\n  title: '${category}/${name}',\n  component: ${name},\n  tags: ['autodocs']\n}\n\n${body}`
 }
