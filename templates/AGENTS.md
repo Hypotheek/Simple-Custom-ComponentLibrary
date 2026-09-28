@@ -13,6 +13,8 @@ This library exists so an AI agent can assemble frontend UI **entirely out of ex
 
 If a task needs something beyond composing existing components with existing data/logic, **stop and say so** — name the gap, don't fill it. That decision belongs to the devs, not the agent.
 
+**An implied need is not permission, no matter how obviously it follows.** "Make this an SPA" implies routing; "make the table sortable" implies sort logic; "add search" implies a filter function. None of those name the code itself, so none of them authorize writing it — even though writing it looks like the only way to actually deliver what was asked. When a request only *implies* code, stop, name exactly what that code would be, explain why the request implies it, and wait for the user to explicitly confirm that specific piece before touching it. See the `simple-vue-components` skill's "explicit means explicit" rule for the full version of this.
+
 ## Always load: `simple-vue-components`
 
 Load the `simple-vue-components` skill (`.claude/skills/simple-vue-components/SKILL.md`) for **any** work that touches a `.vue` file using or needing an `S*` component. It is the source of truth for what components exist and what props/events/slots they actually accept, and for the full "no new features/functions/logic" rule — nothing here overrides it.
