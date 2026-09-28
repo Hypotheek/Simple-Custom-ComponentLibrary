@@ -23,7 +23,22 @@ This applies even under time pressure or when the "quick fix" is obviously three
 
 ## Non-negotiable: no new features, functions, or logic
 
-Using this library correctly also means not writing application code around it. This job is composing existing `S*` components with data/behavior that already exists — nothing more:
+Using this library correctly also means not writing application code around it. This job is composing existing `S*` components with data/behavior that already exists — nothing more.
+
+### Explicit means explicit — an implied need is not permission
+
+The most common way this rule gets broken isn't ignoring it outright — it's treating a request that *implies* new code as if it were a request *for* that code. It isn't, no matter how obviously the implication follows:
+
+- "Make this an SPA" implies client-side routing (e.g. `vue-router`, route definitions, a `router-view`). It does not name that code. **Do not write it.**
+- "Make the table sortable" implies sort logic. It does not name that logic. **Do not write it.**
+- "Add search" implies a filtering function. It does not name that function. **Do not write it.**
+- "Wire this up to the backend" implies fetch calls and response handling. It does not name them. **Do not write them.**
+
+"Explicit" means the user's own words name the specific code — a function, a call, a piece of state — not an outcome or an architecture that a dev would recognize as requiring one. If the only way to get from the request to a working result is by inferring what logic must exist, that inference is exactly what you don't get to act on. **Stop before writing it, every time — even when it seems obviously necessary, even when the alternative is an incomplete-looking result, even when the user would probably say yes if asked.** Probably-yes is not yes.
+
+When you hit this: name precisely what code would be needed (e.g. "an SPA needs client-side routing — I'd add `vue-router` with routes for X/Y/Z, and a `<router-view>` in place of the current `v-if` switch"), explain why the request as stated implies it, and wait for the user to explicitly confirm they want *that* written before touching it. A reply that follows your explanation counts as explicit; assuming it from the original phrasing alone does not.
+
+### The rest of what "no new code" covers
 
 - **Never write a new function, method, composable, or computed property** beyond the minimum needed to bind an existing component's `v-model`/prop/event to state or data that already exists (a local `ref` for a form field, a prop the parent already passes down, a function the surrounding code already defines).
 - **Never add a feature, screen, state, or affordance that wasn't asked for** — no extra confirmation dialogs, loading states, validation rules, empty states, animations, or buttons "while you're in there." If it isn't in the prompt, the design, or the backend code you were given, it doesn't get built.
