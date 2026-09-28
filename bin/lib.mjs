@@ -17,24 +17,60 @@ function mcpUrl() {
 
 const SKILL_VERSION_MARKER = '.simple-vue-components-version'
 
-export function installSkillTo(skillsBaseDir) {
-  const source = path.join(root, 'skills', 'simple-vue-components')
-  if (!fs.existsSync(source)) return { action: 'skipped', reason: 'This package does not include the skill folder.' }
-  const target = path.join(skillsBaseDir, 'simple-vue-components')
+function skillSourceNames() {
+  const skillsRoot = path.join(root, 'skills')
+  if (!fs.existsSync(skillsRoot)) return []
+  return fs.readdirSync(skillsRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+}
+
+function installOneSkill(skillsBaseDir, name) {
+  const source = path.join(root, 'skills', name)
+  const target = path.join(skillsBaseDir, name)
   const existed = fs.existsSync(target)
   if (existed) {
     const marker = path.join(target, SKILL_VERSION_MARKER)
-    if (fs.existsSync(marker) && fs.readFileSync(marker, 'utf8').trim() === pkg.version) return { action: 'unchanged', target }
+    if (fs.existsSync(marker) && fs.readFileSync(marker, 'utf8').trim() === pkg.version) return { name, action: 'unchanged', target }
   }
   fs.rmSync(target, { recursive: true, force: true })
   fs.mkdirSync(skillsBaseDir, { recursive: true })
   fs.cpSync(source, target, { recursive: true })
   fs.writeFileSync(path.join(target, SKILL_VERSION_MARKER), `${pkg.version}\n`)
-  return { action: existed ? 'updated' : 'installed', target }
+  return { name, action: existed ? 'updated' : 'installed', target }
+}
+
+// Installs every skill folder under skills/ (simple-vue-components plus the
+// build-ui-from-* skills) into skillsBaseDir/<name>, each independently versioned.
+export function installSkillTo(skillsBaseDir) {
+  const names = skillSourceNames()
+  if (!names.length) return { action: 'skipped', reason: 'This package does not include any skill folders.', target: skillsBaseDir, skills: [] }
+  const skills = names.map((name) => installOneSkill(skillsBaseDir, name))
+  const changed = skills.filter((s) => s.action !== 'unchanged')
+  const action = changed.length === 0 ? 'unchanged' : changed.some((s) => s.action === 'installed') ? 'installed' : 'updated'
+  return { action, target: skillsBaseDir, skills }
 }
 
 export function installSkill(projectDir) {
   return installSkillTo(path.join(projectDir, '.claude', 'skills'))
+}
+
+const AGENT_DOC_FILES = ['CLAUDE.md', 'AGENTS.md']
+
+// Copies CLAUDE.md and AGENTS.md into the consumer project's root, but only ones that
+// don't already exist there -- unlike the skill/MCP config, these are general-purpose
+// files a project may already own for unrelated reasons, so this never overwrites one.
+export function installAgentDocs(projectDir) {
+  const source = path.join(root, 'templates')
+  if (!fs.existsSync(source)) return { action: 'skipped', reason: 'This package does not include the templates folder.', results: [] }
+  const results = AGENT_DOC_FILES.map((file) => {
+    const target = path.join(projectDir, file)
+    if (fs.existsSync(target)) return { file, action: 'skipped', reason: `${file} already exists` }
+    fs.copyFileSync(path.join(source, file), target)
+    return { file, action: 'added', target }
+  })
+  const added = results.filter((r) => r.action === 'added')
+  return { action: added.length ? 'added' : 'skipped', reason: added.length ? undefined : 'CLAUDE.md and AGENTS.md already exist', results }
 }
 
 export function installMcpConfig(projectDir) {

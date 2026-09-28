@@ -6,8 +6,9 @@ There's no CLI-driven doc generation anymore — the library's Storybook instanc
 
 Installing the package runs a `postinstall` step that:
 
-1. Copies this skill into `.claude/skills/simple-vue-components` in the current project.
-2. Adds an entry to this project's `.mcp.json` pointing at the library's Storybook MCP endpoint:
+1. Copies every skill this package ships into `.claude/skills/` in the current project: `simple-vue-components` (this one — the component API reference) plus `build-ui-from-prompt`, `build-ui-from-design`, and `build-ui-from-backend` (which govern scope depending on what you were given to build from). Each is independently versioned and fully overwritten on update.
+2. Adds `CLAUDE.md` and `AGENTS.md` to the project root — but only the ones that don't already exist there. `AGENTS.md` explains when to load which skill; `CLAUDE.md` just points Claude Code at it. If you already have either file, nothing is touched; add the redirect to your existing `CLAUDE.md` by hand if you want it, and use `templates/AGENTS.md` in this package as a reference for your own.
+3. Adds an entry to this project's `.mcp.json` pointing at the library's Storybook MCP endpoint:
    ```json
    { "mcpServers": { "simple-vue-components-storybook": { "type": "http", "url": "http://localhost:6006/mcp" } } }
    ```
@@ -31,8 +32,9 @@ If the tools aren't showing up in your AI tool, check this before anything else:
 
 ## Commands
 
-- `npx simple-vue-components setup` — installs the skill and writes the `.mcp.json` entry, with output. This is what `postinstall` runs silently; use it to refresh after a package update, or when your package manager doesn't run install scripts (pnpm, Yarn Berry, `--ignore-scripts`, `npm ci` in CI).
-- `npx simple-vue-components skill [--global] [--dir <path>]` — just the skill copy.
+- `npx simple-vue-components setup` — installs the skills, adds `CLAUDE.md`/`AGENTS.md`, and writes the `.mcp.json` entry, with output. This is what `postinstall` runs silently; use it to refresh after a package update, or when your package manager doesn't run install scripts (pnpm, Yarn Berry, `--ignore-scripts`, `npm ci` in CI).
+- `npx simple-vue-components skill [--global] [--dir <path>]` — just the skill copies (all four).
+- `npx simple-vue-components docs` — just `CLAUDE.md`/`AGENTS.md`, skipping any that already exist.
 - `npx simple-vue-components mcp install` — just the `.mcp.json` entry.
 
 ## Verifying the connection

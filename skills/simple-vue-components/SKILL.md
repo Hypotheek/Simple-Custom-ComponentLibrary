@@ -1,6 +1,6 @@
 ---
 name: simple-vue-components
-description: Guides correct use of the private simple-vue-components Vue 3 library (S-prefixed components such as SButton, SCard, SModal, SSelect, SBarChart, SFlex, SGrid), discovered live through Storybook's own MCP tools (docs-list, docs-show, stories-find-by-component, test-run, ...). Applies when building, editing, or debugging Vue templates in a project that depends on simple-vue-components, when a template uses S-prefixed components, when asked for forms, dashboards, charts, overlays, navigation, or any layout/spacing with this library, or when the console shows "Failed to resolve component: S...".
+description: Guides correct use of the private simple-vue-components Vue 3 library (S-prefixed components such as SButton, SCard, SModal, SSelect, SBarChart, SFlex, SGrid), discovered live through Storybook's own MCP tools (docs-list, docs-show, stories-find-by-component, test-run, ...). Applies when building, editing, or debugging Vue templates in a project that depends on simple-vue-components, when a template uses S-prefixed components, when asked for forms, dashboards, charts, overlays, navigation, or any layout/spacing with this library, or when the console shows "Failed to resolve component: S...". This skill always applies alongside whichever of build-ui-from-prompt, build-ui-from-design, or build-ui-from-backend matches the current task — see AGENTS.md.
 when_to_use: Use when writing or editing any .vue file that uses, or should use, an S-prefixed component (SButton, SCard, SModal, SSelect, SBarChart, SFlex, etc.); when asked to build a form, dashboard, chart, modal, nav, or any layout/spacing with this library; or when the console shows "Failed to resolve component: S...".
 paths: "**/*.vue"
 user-invocable: true
@@ -20,6 +20,17 @@ The single most common way to misuse this library is writing code around it inst
 4. **If the tools are unavailable, don't fall back to guessing.** See below.
 
 This applies even under time pressure or when the "quick fix" is obviously three lines of CSS — those three lines are exactly what drifts a project away from the design system, one component at a time.
+
+## Non-negotiable: no new features, functions, or logic
+
+Using this library correctly also means not writing application code around it. This job is composing existing `S*` components with data/behavior that already exists — nothing more:
+
+- **Never write a new function, method, composable, or computed property** beyond the minimum needed to bind an existing component's `v-model`/prop/event to state or data that already exists (a local `ref` for a form field, a prop the parent already passes down, a function the surrounding code already defines).
+- **Never add a feature, screen, state, or affordance that wasn't asked for** — no extra confirmation dialogs, loading states, validation rules, empty states, animations, or buttons "while you're in there." If it isn't in the prompt, the design, or the backend code you were given, it doesn't get built.
+- **Never invent business logic** — calculations, API calls, persistence, auth checks, retries, error recovery, derived/computed values the source material doesn't already provide. At most, wire a UI event to a function or prop the caller already defined; never write the body of that logic yourself.
+- **If the task needs something beyond composing existing components with existing data/logic, stop and say so.** Name the gap in plain terms and describe what a dev would need to add. Do not fill the gap yourself, even with something small — that decision belongs to the devs, not the agent.
+
+This is stricter than "don't hand-roll CSS" above: it applies to *any* code, not just markup and styling. See the `build-ui-from-prompt`, `build-ui-from-design`, and `build-ui-from-backend` skills for how this plays out with each kind of input.
 
 ## Before you do anything: are the tools connected?
 

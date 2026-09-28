@@ -42,7 +42,8 @@ Every `S*` component is now available globally in templates, no per-file imports
 ### If you're using an AI coding tool alongside it
 
 `npm install` also runs a `postinstall` step that sets up:
-- the **Claude Code skill** in `.claude/skills/simple-vue-components`, so an AI working in that project knows the library's conventions and gotchas
+- **four Claude Code skills** in `.claude/skills/`: `simple-vue-components` (the library's conventions and gotchas — what components exist, real props/events/slots), plus `build-ui-from-prompt`, `build-ui-from-design`, and `build-ui-from-backend`, which govern scope discipline depending on what the AI was given to build from — never inventing features, functions, or logic beyond composing existing components with existing data
+- **`CLAUDE.md` and `AGENTS.md`** in the project root (only the ones that don't already exist there) — `AGENTS.md` tells an AI agent which skill(s) to use for a given task, `CLAUDE.md` just redirects Claude Code to it
 - an entry in that project's **`.mcp.json`** pointing at this repo's Storybook MCP endpoint (`@storybook/addon-mcp`), which exposes live component docs, existing usage examples, and story tests as tools an AI can call directly
 
 npm hides a dependency's install-script output by default, so you likely won't see this happen — check with `ls .claude/skills` or `cat .mcp.json` in the consumer project afterward. If your package manager doesn't run install scripts (pnpm, Yarn Berry, `--ignore-scripts`, `npm ci` in CI), run it by hand:
