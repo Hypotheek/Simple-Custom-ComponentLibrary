@@ -5,7 +5,9 @@
 
 A Vue 3 component library of 150 `S`-prefixed components — widgets (`SButton`, `SCard`, `SModal`, `SSelect`, `SBarChart`, ...) and generic layout primitives (`SFlex`, `SGrid`, `SStack`, `SBox`, ...). Documentation lives entirely in [Storybook](https://storybook.js.org/) — there's no separate docs site to keep in sync.
 
-## Export it (build a package to install elsewhere)
+## Export it (build a tarball to share by hand)
+
+Only needed for the tarball install method below — skip this if you're installing straight from GitHub instead.
 
 From this repo:
 
@@ -20,11 +22,28 @@ What's actually inside it: the compiled bundle (`dist/`), the AI skill (`skills/
 
 ## Use it again (install it in another project)
 
-In the consumer project:
+In the consumer project, either method installs the same package.
+
+### From the tarball
 
 ```bash
 npm install ./path/to/simple-vue-components-<version>.tgz
 ```
+
+### Directly from GitHub
+
+```bash
+npm install github:Hypotheek/Simple-Custom-ComponentLibrary
+```
+
+No `npm pack`/share-a-file step needed — npm clones the repo and runs its `prepare` script (`npm run build`) itself before installing, so `dist/` (gitignored, not committed) gets rebuilt fresh from whatever ref you point at. Pin to a tag or commit instead of the default branch for a reproducible install:
+
+```bash
+npm install github:Hypotheek/Simple-Custom-ComponentLibrary#v0.0.3
+npm install github:Hypotheek/Simple-Custom-ComponentLibrary#<commit-sha>
+```
+
+Whoever runs the install needs read access to this (private) GitHub repo — an SSH key or a token configured for GitHub over HTTPS — the same access anyone already needs to browse the repo itself. The tarball has no such requirement; it's just a file. Also expect the install to take longer than the tarball path: npm has to install this repo's own `devDependencies` (Vite, Storybook, Playwright, ...) in a temp clone before it can run the build.
 
 Then register the plugin and import the stylesheet in your app's entry file:
 
