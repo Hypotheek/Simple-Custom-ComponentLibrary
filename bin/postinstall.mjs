@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 // Runs automatically after `npm install` adds this package to a project. Installs the
-// skill and points .mcp.json at the library's Storybook MCP endpoint (see setup.md) --
-// the manual steps in skills/simple-vue-components/setup.md, done for you.
+// skills, drops CLAUDE.md/AGENTS.md, and points .mcp.json at the library's Storybook MCP
+// endpoint (see setup.md) -- the manual steps in skills/simple-vue-components/setup.md,
+// done for you.
 //
 // Safety rules for this file specifically:
 // - It must NEVER throw or exit non-zero: that would fail the consumer's `npm install`.
-// - It only ever touches .claude/skills/simple-vue-components/** (fully owned, overwritten)
+// - It only ever touches .claude/skills/<skill>/** (fully owned, overwritten), root
+//   CLAUDE.md/AGENTS.md (written only if they don't already exist -- never clobbered),
 //   and .mcp.json (merged, never clobbered). Nothing outside that.
 //
 // Caveats worth knowing (documented in setup.md too):
@@ -50,7 +52,8 @@ function main() {
   if (!projectDir) return
 
   const steps = [
-    ['skill', () => lib.installSkill(projectDir)],
+    ['skills', () => lib.installSkill(projectDir)],
+    ['agent docs (CLAUDE.md / AGENTS.md)', () => lib.installAgentDocs(projectDir)],
     ['MCP config (.mcp.json)', () => lib.installMcpConfig(projectDir)]
   ]
   const results = steps.map(([label, run]) => {
