@@ -1,0 +1,14 @@
+{
+  "name": "architecture-analyzer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AI-geschiktheidsbeoordeling voor component- en designbibliotheken (framework-onafhankelijk).",
+  "bin": {
+    "architecture-analyzer": "./bin/analyze.mjs"
+  },
+  "scripts": {
+    "matrix": "node bin/print-matrix.mjs",
+    "analyze": "node bin/analyze.mjs"
+  }
+}
