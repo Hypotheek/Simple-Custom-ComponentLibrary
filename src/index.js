@@ -1,3 +1,4 @@
+import './tokens.css'
 import SAccordion from './components/SAccordion.vue'
 import SAlert from './components/SAlert.vue'
 import SAspectRatio from './components/SAspectRatio.vue'
@@ -20,6 +21,7 @@ import SButton from './components/SButton.vue'
 import SButtonGroup from './components/SButtonGroup.vue'
 import SCalendar from './components/SCalendar.vue'
 import SCard from './components/SCard.vue'
+import SCardV2 from './components/SCardV2.vue'
 import SCarousel from './components/SCarousel.vue'
 import SCenter from './components/SCenter.vue'
 import SCheckbox from './components/SCheckbox.vue'
@@ -30,6 +32,7 @@ import SCode from './components/SCode.vue'
 import SCollapse from './components/SCollapse.vue'
 import SColorPicker from './components/SColorPicker.vue'
 import SColorSwatches from './components/SColorSwatches.vue'
+import SColumn from './components/SColumn.vue'
 import SColumns from './components/SColumns.vue'
 import SCommandPalette from './components/SCommandPalette.vue'
 import SCompare from './components/SCompare.vue'
@@ -44,6 +47,7 @@ import SDescriptionList from './components/SDescriptionList.vue'
 import SDivider from './components/SDivider.vue'
 import SDonutChart from './components/SDonutChart.vue'
 import SDrawer from './components/SDrawer.vue'
+import SDropdownV2 from './components/SDropdownV2.vue'
 import SEmpty from './components/SEmpty.vue'
 import SEqualCols from './components/SEqualCols.vue'
 import SFab from './components/SFab.vue'
@@ -62,6 +66,7 @@ import SHStack from './components/SHStack.vue'
 import SHeading from './components/SHeading.vue'
 import SHeatmap from './components/SHeatmap.vue'
 import SHorizontalBar from './components/SHorizontalBar.vue'
+import SIcon from './components/SIcon.vue'
 import SIconButton from './components/SIconButton.vue'
 import SImage from './components/SImage.vue'
 import SInline from './components/SInline.vue'
@@ -106,6 +111,7 @@ import SRating from './components/SRating.vue'
 import SResult from './components/SResult.vue'
 import SRibbon from './components/SRibbon.vue'
 import SRounded from './components/SRounded.vue'
+import SRow from './components/SRow.vue'
 import SScatterPlot from './components/SScatterPlot.vue'
 import SScrollArea from './components/SScrollArea.vue'
 import SSearchInput from './components/SSearchInput.vue'
@@ -172,6 +178,7 @@ const components = {
   SButtonGroup,
   SCalendar,
   SCard,
+  SCardV2,
   SCarousel,
   SCenter,
   SCheckbox,
@@ -182,6 +189,7 @@ const components = {
   SCollapse,
   SColorPicker,
   SColorSwatches,
+  SColumn,
   SColumns,
   SCommandPalette,
   SCompare,
@@ -196,6 +204,7 @@ const components = {
   SDivider,
   SDonutChart,
   SDrawer,
+  SDropdownV2,
   SEmpty,
   SEqualCols,
   SFab,
@@ -214,6 +223,7 @@ const components = {
   SHeading,
   SHeatmap,
   SHorizontalBar,
+  SIcon,
   SIconButton,
   SImage,
   SInline,
@@ -258,6 +268,7 @@ const components = {
   SResult,
   SRibbon,
   SRounded,
+  SRow,
   SScatterPlot,
   SScrollArea,
   SSearchInput,
@@ -335,6 +346,7 @@ export {
   SButtonGroup,
   SCalendar,
   SCard,
+  SCardV2,
   SCarousel,
   SCenter,
   SCheckbox,
@@ -345,6 +357,7 @@ export {
   SCollapse,
   SColorPicker,
   SColorSwatches,
+  SColumn,
   SColumns,
   SCommandPalette,
   SCompare,
@@ -359,6 +372,7 @@ export {
   SDivider,
   SDonutChart,
   SDrawer,
+  SDropdownV2,
   SEmpty,
   SEqualCols,
   SFab,
@@ -377,6 +391,7 @@ export {
   SHeading,
   SHeatmap,
   SHorizontalBar,
+  SIcon,
   SIconButton,
   SImage,
   SInline,
@@ -421,6 +436,7 @@ export {
   SResult,
   SRibbon,
   SRounded,
+  SRow,
   SScatterPlot,
   SScrollArea,
   SSearchInput,

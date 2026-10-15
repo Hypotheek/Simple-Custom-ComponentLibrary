@@ -1,0 +1,36 @@
+/*
+ * Design tokens. Custom properties on :root, snake_case.
+ *
+ * color_*    colours
+ * size_*     font sizes and control sizes
+ * space_*    gap BETWEEN elements (layout)
+ * spacing_*  padding INSIDE a component
+ */
+:root {
+  --color_primary: #1d4ed8;
+  --color_secondary: #475569;
+  --color_terciary: #0f766e;
+  --color_surface: #ffffff;
+  --color_surface_muted: #f3f4f6;
+  --color_border: #e5e7eb;
+  --color_text: #111827;
+  --color_text_muted: #6b7280;
+  --color_danger: #dc2626;
+  --color_success: #16a34a;
+
+  --size_s: 12px;
+  --size_m: 14px;
+  --size_l: 16px;
+  --size_ll: 20px;
+  --size_xl: 24px;
+
+  --space_1: 4px;
+  --space_2: 8px;
+  --space_3: 12px;
+  --space_4: 16px;
+  --space_5: 24px;
+
+  --spacing_sm: 8px;
+  --spacing_md: 16px;
+  --spacing_lg: 24px;
+}

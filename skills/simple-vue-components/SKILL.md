@@ -8,7 +8,7 @@ user-invocable: true
 
 # simple-vue-components
 
-A private Vue 3 library of 150 `S`-prefixed components — including generic layout primitives (`SFlex`, `SGrid`, `SStack`, `SBox`, ...), not just widgets. There is no generated API doc or CLI: the library's own **Storybook** instance is the single source of truth, and its `@storybook/addon-mcp` addon exposes that same data as MCP tools you can call directly.
+A private Vue 3 library of 155 `S`-prefixed components — including generic layout primitives (`SFlex`, `SGrid`, `SStack`, `SBox`, ...), not just widgets. There is no generated API doc or CLI: the library's own **Storybook** instance is the single source of truth, and its `@storybook/addon-mcp` addon exposes that same data as MCP tools you can call directly.
 
 ## Non-negotiable: never invent
 

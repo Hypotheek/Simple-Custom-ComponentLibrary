@@ -12,7 +12,7 @@ const names = fs
   .sort()
   .map((f) => f.replace(/\.vue$/, ''))
 
-let out = ''
+let out = `import './tokens.css'\n`
 for (const n of names) out += `import ${n} from './components/${n}.vue'\n`
 
 out += `\nconst components = {\n${names.map((n) => `  ${n}`).join(',\n')}\n}\n\n`
