@@ -6,6 +6,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { CRITERIA } from '../rubric.mjs'
+import { isPascalCase } from './vue-utils.mjs'
 
 function daysSince(iso) {
   if (!iso) return null
@@ -61,14 +62,31 @@ function countManifestEntries(ctx, relPath) {
 
 function scoreInventaris(ctx) {
   const manifest = ctx.manifestFiles[0] || null
+  if (!manifest && ctx.hasStorybook && ctx.storyFiles.length > 0) {
+    // Storybook builds its sidebar from the story files, so it cannot list a component that no
+    // longer exists; the only way to fall behind is a component without a story.
+    const storyBases = new Set(ctx.storyFiles.map((s) => path.basename(s).replace(/\.(stories|story)\.(mdx|[jt]sx?)$/i, '')))
+    const names = ctx.componentFiles.map((f) => path.basename(f).replace(/\.(vue|jsx|tsx)$/i, ''))
+    const covered = names.filter((n) => storyBases.has(n)).length
+    const ratio = names.length ? covered / names.length : 0
+    const score = ratio >= 0.95 ? 3 : ratio >= 0.8 ? 2 : ratio >= 0.5 ? 1 : 0
+    return {
+      score,
+      evidence: [
+        'het overzicht is de Storybook-sidebar, die automatisch uit de story-bestanden wordt opgebouwd',
+        `${covered} van de ${names.length} componenten (${Math.round(ratio * 100)}%) hebben een story en staan dus in het overzicht`
+      ],
+      oordeel: score === 3
+        ? 'Het overzicht wordt automatisch gegenereerd en bevat vrijwel alle componenten.'
+        : 'Het overzicht wordt automatisch gegenereerd, maar componenten zonder story ontbreken erin.'
+    }
+  }
   if (!manifest) {
     return {
+      nvt: true,
       score: 0,
-      evidence: [
-        `geen manifestbestand gevonden (ctx.manifestFiles is leeg) bij ${ctx.componentCount} gedetecteerde componenten`,
-        'zonder gestructureerde inventarislijst is er niets waarvan de actualiteit beoordeeld kan worden'
-      ],
-      oordeel: 'Er bestaat geen gestructureerde componentenlijst, dus dit criterium scoort per definitie 0: er is niets dat kan verouderen.'
+      evidence: [`geen manifestbestand en geen Storybook gevonden bij ${ctx.componentCount} componenten`],
+      oordeel: 'Er bestaat geen componentenlijst, dus er is niets waarvan de actualiteit beoordeeld kan worden (de afwezigheid telt al mee bij beschikbaarheid).'
     }
   }
   const count = countManifestEntries(ctx, manifest)
@@ -120,22 +138,28 @@ function scoreApiDocumentatie(ctx) {
 }
 
 function scoreTypeDefinities(ctx) {
-  if (!ctx.typeDeclarationFiles.length) {
+  const scripts = Object.values(ctx.packageJson?.scripts || {}).join(' ')
+  const deps = mergedDeps(ctx.packageJson)
+  const generated = /vue-tsc|\btsc\b/.test(scripts) && /--(emitDeclarationOnly|declaration)/.test(scripts) || Boolean(deps['vite-plugin-dts'] || deps['rollup-plugin-dts'])
+  if (!ctx.hasTypeScript && ctx.typeDeclarationFiles.length === 0) {
     return {
+      nvt: true,
       score: 0,
-      evidence: [`ctx.typeDeclarationFiles is leeg (hasTypeScript=${ctx.hasTypeScript})`, `geen enkel .d.ts-bestand gevonden voor de ${ctx.componentCount} componenten`],
-      oordeel: 'Er bestaan geen type-declaraties, dus deze kunnen ook niet actueel zijn; dit criterium scoort per definitie 0 omdat types ontbreken.'
+      evidence: ['geen TypeScript en geen .d.ts-bestanden gevonden'],
+      oordeel: 'Er bestaan geen type-declaraties, dus er is niets dat kan verouderen (de afwezigheid telt al mee bij beschikbaarheid).'
     }
   }
-  const blob = scriptsBlob(ctx.packageJson)
-  const genSignal = /\btsc\b|vue-tsc|vite build|\bdts\b|typegen/i.test(blob)
-  const score = genSignal ? 3 : 1
+  if (generated) {
+    return {
+      score: 3,
+      evidence: ['de build genereert declaratiebestanden rechtstreeks uit de broncode (vue-tsc/tsc met declaraties, of een dts-plugin)'],
+      oordeel: 'Type-declaraties worden bij elke build automatisch uit de broncode gegenereerd en kunnen dus niet stilzwijgend verouderen.'
+    }
+  }
   return {
-    score,
-    evidence: [`${ctx.typeDeclarationFiles.length} .d.ts-bestand(en) gevonden`, `build/prepack/prepare-scripts: "${blob || '(geen scripts)'}"`],
-    oordeel: genSignal
-      ? 'Type-declaraties worden blijkbaar bij elke build automatisch gegenereerd (een build/prepack-script roept een type-generator aan), waardoor ze niet stilzwijgend kunnen verouderen.'
-      : 'Type-declaraties zijn aanwezig, maar er is geen build-script gevonden dat ze automatisch genereert; ze lijken handmatig bijgehouden en kunnen achterlopen.'
+    score: 1,
+    evidence: [`${ctx.typeDeclarationFiles.length} .d.ts-bestand(en) met component-API; geen generatiestap in de build gevonden`],
+    oordeel: 'Types bestaan, maar worden niet automatisch gegenereerd; handmatig bijgehouden declaraties kunnen achterlopen.'
   }
 }
 
@@ -166,33 +190,30 @@ function scoreVoorbeelden(ctx) {
 }
 
 function scoreNaamgeving(ctx) {
+  // Whether a naming pattern shifts over time can only be seen in the history.
+  if (ctx.gitLog === null) {
+    return {
+      nvt: true,
+      score: 0,
+      evidence: ['ctx.gitLog is null: zonder commit-geschiedenis is niet te zien of het naamgevingspatroon verschuift'],
+      oordeel: 'De stabiliteit van het naamgevingspatroon is zonder git-geschiedenis niet te meten.'
+    }
+  }
   const basenames = ctx.componentFiles.map((f) => path.basename(f).replace(/\.(vue|jsx|tsx)$/, ''))
-  let ratio = 1
-  if (basenames.length) {
-    const firstChars = {}
-    for (const b of basenames) firstChars[b[0] || ''] = (firstChars[b[0] || ''] || 0) + 1
-    const dominant = Math.max(0, ...Object.values(firstChars))
-    ratio = dominant / basenames.length
-  }
-  const renameSignal = ctx.gitLog?.recentMessagesSample?.some((m) => /rename|hernoem/i.test(m)) || false
-  const evidence = [`${basenames.length} componentbestanden; ${Math.round(ratio * 100)}% deelt hetzelfde beginteken in de bestandsnaam (huidige-staat-consistentie)`]
-  if (ctx.gitLog) {
-    evidence.push(
-      renameSignal
-        ? 'recente commit-berichten bevatten aanwijzingen van hernoemen/naamgeving-refactors'
-        : `geen van de laatste ${ctx.gitLog.recentMessagesSample.length} commit-berichten wijst op hernoemen; geen directe aanwijzing van patroon-drift`
-    )
-  } else {
-    evidence.push('ctx.gitLog is null: kan commit-geschiedenis niet raadplegen op hernoem-signalen')
-  }
+  const ratio = basenames.length ? basenames.filter(isPascalCase).length / basenames.length : 1
+  const renameSignal = ctx.gitLog.recentMessagesSample.some((m) => /rename|hernoem/i.test(m))
+  const evidence = [
+    `${basenames.length} componentbestanden; ${Math.round(ratio * 100)}% gebruikt PascalCase`,
+    renameSignal
+      ? 'recente commit-berichten bevatten aanwijzingen van hernoemen/naamgeving-refactors'
+      : `geen van de laatste ${ctx.gitLog.recentMessagesSample.length} commit-berichten wijst op hernoemen`
+  ]
   const score = renameSignal ? 1 : ratio >= 0.98 ? 2 : ratio >= 0.8 ? 1 : 0
   const oordeel = renameSignal
-    ? 'Recente commit-berichten wijzen op hernoemen/refactoren van naamgeving, wat op een verschuivend patroon duidt.'
-    : ratio >= 0.98
-      ? 'Het patroon is in de huidige broncode zonder uitzondering consistent en niets in de recente geschiedenis wijst op drift; dit is een inferentie uit afwezigheid van tegenbewijs, geen bewezen stabiliteit over de volledige geschiedenis.'
-      : ratio >= 0.8
-        ? 'De meeste componenten volgen hetzelfde patroon, maar er zijn uitzonderingen in de huidige broncode die op beginnende drift kunnen wijzen.'
-        : 'Een aanzienlijk deel van de componenten wijkt af van het dominante patroon, wat op een verschuivend patroon wijst.'
+    ? 'Recente commit-berichten wijzen op hernoemen, wat op een verschuivend patroon duidt.'
+    : score === 2
+      ? 'Het patroon is in de huidige code consistent en de recente geschiedenis wijst niet op drift (inferentie uit afwezigheid van tegenbewijs).'
+      : 'Een deel van de componenten wijkt af van het dominante patroon, wat op een verschuivend patroon kan wijzen.'
   return { score, evidence, oordeel }
 }
 
@@ -228,7 +249,8 @@ function scoreDesignTokens(ctx) {
 function scoreCompositiepatroon(ctx) {
   if (ctx.gitLog === null) {
     return {
-      score: 1,
+      nvt: true,
+      score: 0,
       evidence: ['ctx.gitLog is null: geen commit-geschiedenis om actieve herstructurering of stabiliteit van het compositiepatroon te toetsen'],
       oordeel: 'Zonder git-geschiedenis kan de actualiteit van het compositiepatroon niet worden onderbouwd; conservatief in het midden gescoord.'
     }
@@ -250,12 +272,35 @@ function scoreCompositiepatroon(ctx) {
   return { score, evidence, oordeel }
 }
 
+function scoreVerouderdeComponenten(ctx) {
+  const { marked } = ctx.deprecations
+  if (marked.length === 0) {
+    return { nvt: true, score: 0, evidence: ['Geen gemarkeerde verouderde componenten gevonden.'], oordeel: 'Er zijn geen markeringen waarvan de actualiteit te toetsen is.' }
+  }
+  const valid = marked.filter((d) => d.successorExists)
+  const named = marked.filter((d) => d.successor)
+  const broken = named.filter((d) => !d.successorExists)
+  const share = valid.length / marked.length
+  const score = share >= 0.95 ? 3 : share >= 0.6 ? 2 : share > 0 ? 1 : 0
+  const evidence = [
+    `${valid.length} van de ${marked.length} markeringen (${Math.round(share * 100)}%) verwijzen naar een opvolger die in de bibliotheek bestaat`,
+    `${marked.length - named.length} markeringen noemen geen opvolger`
+  ]
+  if (broken.length) evidence.push(`opvolger niet gevonden: ${broken.map((d) => `${d.name} → ${d.successor}`).join(', ')}`)
+  const oordeel = ['Markeringen verwijzen niet naar een opvolger die bestaat.',
+    'Een minderheid van de markeringen verwijst naar een bestaande opvolger.',
+    'De meeste markeringen verwijzen naar een bestaande opvolger.',
+    'Elke markering verwijst naar een opvolger die in de huidige bibliotheek bestaat.'][score]
+  return { score, evidence, oordeel }
+}
+
 function scoreVersiebeheer(ctx) {
   if (!ctx.changelogFile) {
     return {
+      nvt: true,
       score: 0,
       evidence: [`geen changelog-bestand gevonden (package.json version=${ctx.packageJson?.version ?? 'onbekend'})`],
-      oordeel: 'Er bestaat geen changelog, dus er is niets dat actueel of verouderd kan zijn; dit criterium scoort per definitie 0.'
+      oordeel: 'Er bestaat geen changelog, dus er is niets dat actueel of verouderd kan zijn (de afwezigheid telt al mee bij beschikbaarheid).'
     }
   }
   const pkgVersion = ctx.packageJson?.version || null
@@ -292,9 +337,10 @@ function scoreToolingIntegratie(ctx) {
   const mcpDep = Object.keys(deps).some((d) => /mcp/i.test(d))
   if (!ideManifest && !mcpFiles && !mcpDep) {
     return {
+      nvt: true,
       score: 0,
       evidence: ['geen MCP-config, IDE-manifest (custom-elements.json/web-types.json) of MCP-gerelateerde dependency gevonden'],
-      oordeel: 'Er is geen tooling-/AI-integratie gedetecteerd, dus dit criterium scoort per definitie 0: er is niets dat actueel of verouderd kan zijn.'
+      oordeel: 'Er is geen tooling-/AI-integratie gedetecteerd, dus er is niets dat actueel of verouderd kan zijn (de afwezigheid telt al mee bij beschikbaarheid).'
     }
   }
   const evidence = []
@@ -318,8 +364,8 @@ function scoreToolingIntegratie(ctx) {
       score = ctx.gitLog.commitCountLast90Days > 0 ? 1 : 0
       evidence.push(`tooling-dependencies: ${related.join(', ')} (versies: ${[...versions].join(', ')})`, `fallback op commit-recentheid: ${ctx.gitLog.commitCountLast90Days} commits in de afgelopen 90 dagen`)
     } else {
-      score = 1
-      evidence.push(`tooling-dependencies: ${related.join(', ')} (versies: ${[...versions].join(', ')})`, 'ctx.gitLog is null: geen fallback-signaal beschikbaar, conservatief beoordeeld')
+      evidence.push(`tooling-dependencies: ${related.join(', ')} (versies: ${[...versions].join(', ')})`, 'ctx.gitLog is null: zonder versiesynchronisatie of commit-geschiedenis is de actualiteit niet te meten')
+      return { nvt: true, score: 0, evidence, oordeel: 'De actualiteit van de tooling-integratie is zonder git-geschiedenis niet te meten.' }
     }
   } else {
     score = 1
@@ -369,16 +415,17 @@ function scoreBroncodeToegankelijkheid(ctx) {
 function scoreTestdekking(ctx) {
   if (!ctx.testFiles.length) {
     return {
+      nvt: true,
       score: 0,
       evidence: [`ctx.testFiles is leeg (0 testbestanden) bij ${ctx.componentCount} componenten`],
-      oordeel: 'Er zijn geen geautomatiseerde tests, dus er is niets dat actueel of verouderd kan zijn; dit criterium scoort per definitie 0.'
+      oordeel: 'Er zijn geen geautomatiseerde tests, dus er is niets dat actueel of verouderd kan zijn (de afwezigheid telt al mee bij beschikbaarheid).'
     }
   }
   const evidence = [`${ctx.testFiles.length} testbestand(en) gevonden`]
   let score
   if (ctx.gitLog === null) {
-    score = 1
-    evidence.push('ctx.gitLog is null: kan niet nagaan of tests recent zijn bijgewerkt; conservatief beoordeeld')
+    evidence.push('ctx.gitLog is null: kan niet nagaan of tests recent zijn bijgewerkt')
+    return { nvt: true, score: 0, evidence, oordeel: 'Of de tests actueel zijn, is zonder git-geschiedenis niet te meten.' }
   } else {
     const positiveSignal = ctx.gitLog.recentMessagesSample.some((m) => /\btest(s)?\b|spec|fix test/i.test(m))
     evidence.push(
@@ -401,10 +448,11 @@ function scoreTestdekking(ctx) {
 function scoreOnderhoudsactiviteit(ctx) {
   if (ctx.gitLog === null) {
     return {
+      nvt: true,
       score: 0,
       evidence: [
-        'ctx.gitLog is null: geen git-geschiedenis beschikbaar (geen repository, of git niet geïnstalleerd)',
-        'zonder enige geschiedenis kan geen recente onderhoudsactiviteit worden aangetoond'
+        'ctx.gitLog is null: geen git-geschiedenis in de geanalyseerde map (bv. een zip-download zonder .git-map)',
+        'zonder geschiedenis is recente onderhoudsactiviteit niet te meten'
       ],
       oordeel: 'Er is geen git-geschiedenis om onderhoudsactiviteit op te toetsen; dit wordt bewust conservatief als niet-aantoonbaar-actueel (0) beoordeeld, niet als een stilzwijgende middenscore, omdat er letterlijk geen bewijs van recente activiteit is.'
     }
@@ -443,6 +491,7 @@ const SCORERS = {
   naamgeving: scoreNaamgeving,
   'design-tokens': scoreDesignTokens,
   compositiepatroon: scoreCompositiepatroon,
+  'verouderde-componenten': scoreVerouderdeComponenten,
   versiebeheer: scoreVersiebeheer,
   'tooling-integratie': scoreToolingIntegratie,
   'broncode-toegankelijkheid': scoreBroncodeToegankelijkheid,
@@ -454,8 +503,8 @@ export function analyze(ctx) {
   const rows = CRITERIA.map((criterion) => {
     const scorer = SCORERS[criterion.id]
     if (!scorer) throw new Error(`Geen actualiteit-scorer geregistreerd voor criterium "${criterion.id}"`)
-    const { score, evidence, oordeel } = scorer(ctx)
-    return { criterionId: criterion.id, score, max: 3, evidence, oordeel }
+    const { score, evidence, oordeel, nvt } = scorer(ctx)
+    return { criterionId: criterion.id, score, max: 3, evidence, oordeel, nvt: Boolean(nvt) }
   })
   return { dimensionId: 'actualiteit', rows }
 }

@@ -37,6 +37,9 @@ const rootDir = path.resolve(args.target)
 if (!fs.existsSync(rootDir)) fail(`Pad bestaat niet: ${rootDir}`)
 
 const ctx = buildContext(rootDir)
+console.error(`Package-map: ${ctx.packageDir === '' ? '(root)' : ctx.packageDir ?? 'geen package.json gevonden'}`)
+console.error(`Componenten: ${ctx.componentCount}; niet meegeteld: ${ctx.excludedNonComponentFiles.join(', ') || 'geen'}`)
+if (ctx.gitLog === null) console.error('Geen git-geschiedenis gevonden: cellen die daarvan afhangen worden n.v.t. en tellen niet mee.')
 const dimensionResults = [
   analyzeBeschikbaarheid(ctx),
   analyzeConsistentie(ctx),
@@ -44,6 +47,7 @@ const dimensionResults = [
   analyzeActualiteit(ctx)
 ]
 const matrix = aggregate(dimensionResults)
+console.error(`Totaal: ${matrix.totalScore} / ${matrix.totalMax} (${matrix.nvtCells} cel(len) n.v.t.)`)
 
 const meta = {
   name: ctx.packageJson?.name || path.basename(rootDir),

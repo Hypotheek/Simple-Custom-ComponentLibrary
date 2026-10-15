@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { CRITERIA } from '../rubric.mjs'
+import { extractPropNames, isPascalCase, propNameStyle } from './vue-utils.mjs'
 
 // Consistentie asks "is this applied uniformly across the WHOLE library", so every heuristic
 // below compares many files against each other rather than just checking presence once.
@@ -21,12 +22,10 @@ function storyBaseName(rel) {
   return path.basename(rel).replace(/\.(stories|story)\.(mdx|[jt]sx?)$/i, '')
 }
 
-function sample(list, max = 25) {
-  if (list.length <= max) return { items: list, sampled: false }
-  const step = list.length / max
-  const items = []
-  for (let i = 0; i < max; i++) items.push(list[Math.floor(i * step)])
-  return { items: [...new Set(items)], sampled: true }
+// Every heuristic scans ALL files. Sampling made scores depend on which files happened to be
+// picked, so the same library could score differently between runs after an unrelated change.
+function sample(list) {
+  return { items: list, sampled: false }
 }
 
 function pct(n, d) {
@@ -53,16 +52,46 @@ function manifestCoverage(ctx, realNames) {
   return mentioned
 }
 
+// Where components are registered: a manifest, or the entry/plugin files that import and
+// register every component (index.ts, plugins/*.ts). Both are a "registratiepatroon".
+function registryFiles(ctx) {
+  return ctx.allFiles.filter((f) =>
+    !f.includes('.storybook/') &&
+    !/\.(stories|story|d)\.[jt]s$/.test(f) &&
+    (/(^|\/)(index|main|components)\.(m?[jt]s)$/.test(f) || /(^|\/)plugins?\/[^/]+\.(m?[jt]s)$/.test(f))
+  )
+}
+
 function analyzeInventaris(ctx) {
   const realNames = realComponentNames(ctx)
-  if (ctx.manifestFiles.length === 0) {
+  const sources = ctx.manifestFiles.length > 0 ? ctx.manifestFiles : registryFiles(ctx)
+  if (sources.length === 0) {
     return {
       score: 0,
-      evidence: ['Geen manifestbestand gevonden (custom-elements.json, categories.mjs, web-types.json, ...) om componenten tegen te registreren.'],
-      oordeel: 'Zonder enig manifest is er geen registratiepatroon te controleren op consistentie; componenten worden nergens gestructureerd bijgehouden.'
+      evidence: ['Geen manifestbestand en geen registratiebestand (index.ts, plugins/*.ts) gevonden om componenten tegen te registreren.'],
+      oordeel: 'Er is geen registratiepatroon te controleren op consistentie.'
     }
   }
-  const mentioned = manifestCoverage(ctx, realNames)
+  const mentioned = new Set()
+  const perSource = []
+  for (const rel of sources) {
+    const content = readSafe(ctx, rel)
+    if (!content) continue
+    // Automatic registration: a glob over the components folder registers every file in it.
+    const glob = content.match(/(?:import\.meta\.glob(?:Eager)?|require\.context)\s*\(\s*['"`]([^'"`]*components[^'"`]*)['"`]/)
+    if (glob) {
+      const auto = ctx.componentFiles.filter((f) => f.includes('/components/'))
+      for (const f of auto) mentioned.add(baseName(f))
+      perSource.push(`${rel} (automatisch via glob "${glob[1]}": ${auto.length})`)
+      continue
+    }
+    let hits = 0
+    for (const n of realNames) {
+      // Registered names often carry a prefix: UFlex for Flex.vue.
+      if (new RegExp(`\\bU?${n}\\b`).test(content)) { mentioned.add(n); hits++ }
+    }
+    if (hits) perSource.push(`${rel} (${hits})`)
+  }
   const coverage = pct(mentioned.size, realNames.size)
   const missing = [...realNames].filter((n) => !mentioned.has(n))
   let score
@@ -70,16 +99,17 @@ function analyzeInventaris(ctx) {
   else if (coverage >= 80) score = 2
   else if (coverage >= 50) score = 1
   else score = 0
-  const evidence = [`${mentioned.size} van de ${realNames.size} componentbestanden (${coverage}%) komen voor in ${ctx.manifestFiles.join(', ')}.`]
-  if (missing.length > 0 && missing.length <= 10) evidence.push(`Ontbrekend in het manifest: ${missing.join(', ')}.`)
-  else if (missing.length > 10) evidence.push(`${missing.length} componenten ontbreken in het manifest, o.a. ${missing.slice(0, 5).join(', ')}, ...`)
+  const kind = ctx.manifestFiles.length > 0 ? 'manifest' : 'registratiebestand(en)'
+  const evidence = [`${mentioned.size} van de ${realNames.size} componenten (${coverage}%) worden geregistreerd via ${kind}: ${perSource.join(', ') || '(geen treffers)'}.`]
+  if (missing.length > 0 && missing.length <= 10) evidence.push(`Niet geregistreerd: ${missing.join(', ')}.`)
+  else if (missing.length > 10) evidence.push(`${missing.length} componenten niet geregistreerd, o.a. ${missing.slice(0, 5).join(', ')}, ...`)
   const oordeel = coverage >= 95
-    ? 'Vrijwel elk component wordt zonder uitzondering op exact dezelfde manier (via hetzelfde manifestbestand) geregistreerd.'
+    ? 'Vrijwel elk component wordt op dezelfde manier geregistreerd.'
     : coverage >= 80
       ? 'Vrijwel elk component volgt hetzelfde registratiepatroon, met enkele uitzonderingen.'
       : coverage >= 50
         ? 'Een registratiepatroon bestaat, maar wordt niet voor elk component gevolgd.'
-        : 'Het manifest dekt een minderheid van de componenten; van een consistent registratiepatroon is nauwelijks sprake.'
+        : 'Het registratiepatroon dekt een minderheid van de componenten.'
   return { score, evidence, oordeel }
 }
 
@@ -152,7 +182,7 @@ function analyzeTypeDefinities(ctx) {
   else score = 0
   const sampleNote = sampled ? `steekproef van ${checked} van de ${ctx.componentFiles.length} bestanden` : `alle ${checked} bestanden`
   const breakdown = ranked.map(([k, v]) => `${k}: ${v}`).join(', ')
-  const evidence = [`Verdeling van typeerstijlen over een ${sampleNote}: ${breakdown}.`]
+  const evidence = [`Verdeling van typeerstijlen over ${sampleNote}: ${breakdown}.`]
   if (dominantStyle) evidence.push(`${dominantCount} van de ${checked} (${share}%) gebruiken dezelfde stijl ("${dominantStyle}").`)
   const oordeel = checked === 0
     ? 'Geen bestanden konden gelezen worden.'
@@ -198,32 +228,56 @@ function analyzeVoorbeelden(ctx) {
 function analyzeNaamgeving(ctx) {
   const names = ctx.componentFiles.map(baseName)
   if (names.length === 0) return { score: 0, evidence: ['Geen componentbestanden gevonden.'], oordeel: 'Niet te beoordelen zonder componenten.' }
-  const prefixCounts = {}
-  for (const n of names) {
-    const m = n.match(/^[A-Z][a-z0-9]*/)
-    const prefix = m ? m[0] : (n[0] || '?')
-    prefixCounts[prefix] = (prefixCounts[prefix] || 0) + 1
+
+  // Component names: one casing (PascalCase) for every file. A shared letter prefix is only one
+  // possible convention; libraries that add their prefix at registration (U + Flex) have none.
+  const pascal = names.filter(isPascalCase)
+  const pascalShare = pct(pascal.length, names.length)
+
+  // Prop names: camelCase everywhere, or mixed with glued lower case (iconsize) and snake/kebab.
+  const styleCounts = { camel: 0, glued: 0, snake: 0, kebab: 0, other: 0 }
+  const offenders = []
+  for (const rel of ctx.componentFiles) {
+    const content = readSafe(ctx, rel)
+    for (const prop of extractPropNames(content)) {
+      const style = propNameStyle(prop)
+      styleCounts[style]++
+      if (style !== 'camel' && offenders.length < 8) offenders.push(`${baseName(rel)}.${prop}`)
+    }
   }
-  const [dominantPrefix, dominantCount] = Object.entries(prefixCounts).sort((a, b) => b[1] - a[1])[0]
-  const share = pct(dominantCount, names.length)
+  const totalProps = Object.values(styleCounts).reduce((a, b) => a + b, 0)
+  const camelShare = totalProps > 0 ? pct(styleCounts.camel, totalProps) : 100
+
   let score
-  if (share >= 99) score = 3
-  else if (share >= 90) score = 2
-  else if (share >= 60) score = 1
+  if (pascalShare >= 99 && camelShare >= 99) score = 3
+  else if (pascalShare >= 95 && camelShare >= 90) score = 2
+  else if (pascalShare >= 80) score = 1
   else score = 0
-  const evidence = [`${dominantCount} van de ${names.length} componentbestanden (${share}%) beginnen met hetzelfde prefix "${dominantPrefix}".`]
-  if (share < 100) {
-    const others = Object.entries(prefixCounts).filter(([p]) => p !== dominantPrefix).map(([p, c]) => `${p} (${c})`)
-    evidence.push(`Afwijkende prefixen: ${others.join(', ')}.`)
-  }
-  const oordeel = share >= 99
-    ? 'Componentnamen zijn zonder uitzondering consistent: elk bestand deelt hetzelfde prefix.'
-    : share >= 90
-      ? 'Vrijwel elk component volgt hetzelfde naamgevingspatroon, met een enkele uitzondering.'
-      : share >= 60
-        ? 'Een basispatroon (gedeeld prefix) wordt gevolgd, maar met merkbare afwijkingen.'
-        : 'Namen wisselen goeddeels willekeurig van stijl; er is geen dominant patroon.'
+
+  const evidence = [
+    `${pascal.length} van de ${names.length} componentbestanden (${pascalShare}%) gebruiken PascalCase.`,
+    `${styleCounts.camel} van de ${totalProps} props (${camelShare}%) gebruiken camelCase; afwijkend: ${styleCounts.glued} aaneengeschreven in kleine letters, ${styleCounts.snake} snake_case, ${styleCounts.kebab} kebab-case, ${styleCounts.other} overig.`
+  ]
+  if (offenders.length) evidence.push(`Voorbeelden van afwijkende props: ${offenders.join(', ')}.`)
+  evidence.push('Aaneengeschreven props worden herkend aan een woordenlijst (bv. icon + size); dit is een heuristiek en mist samenstellingen met woorden buiten die lijst.')
+  const oordeel = score === 3
+    ? 'Component- en propnamen volgen zonder uitzondering hetzelfde patroon.'
+    : score === 2
+      ? 'Component- en de meeste propnamen volgen hetzelfde patroon, met uitzonderingen.'
+      : score === 1
+        ? 'Componentnamen volgen een basispatroon, maar propnamen wisselen merkbaar van stijl.'
+        : 'Namen wisselen van stijl; er is geen dominant patroon.'
   return { score, evidence, oordeel }
+}
+
+// Leaf token names from a token JSON: flat ({ color_white: '#fff' }) or nested with value objects.
+function collectTokenNames(node, out) {
+  if (!node || typeof node !== 'object') return
+  for (const [key, value] of Object.entries(node)) {
+    if (value === null || typeof value !== 'object') out.push(key)
+    else if ('value' in value) out.push(key)
+    else collectTokenNames(value, out)
+  }
 }
 
 function analyzeDesignTokens(ctx) {
@@ -247,13 +301,33 @@ function analyzeDesignTokens(ctx) {
   const hardcodedShare = pct(hardcoded, checked)
   // Conservative cap: we only check for absence of hardcoded literals, not that components
   // actually reference the token set, so this heuristic can never claim the top tier on its own.
-  const score = hardcodedShare <= 10 ? 2 : hardcodedShare <= 40 ? 1 : 0
+  let score = hardcodedShare <= 10 ? 2 : hardcodedShare <= 40 ? 1 : 0
+
+  // Token names themselves: one separator style. In JS and in prop values only the exact name
+  // works (color_tertiary vs color-tertiary), so a mix is an easy mistake for a person or an AI.
+  const names = []
+  for (const rel of ctx.designTokenFiles.filter((f) => f.endsWith('.json'))) {
+    try { collectTokenNames(JSON.parse(readSafe(ctx, rel) || 'null'), names) } catch { /* not JSON */ }
+  }
+  const withUnderscore = names.filter((n) => n.includes('_') && !n.includes('-')).length
+  const withDash = names.filter((n) => n.includes('-') && !n.includes('_')).length
+  const mixedWithin = names.filter((n) => n.includes('-') && n.includes('_'))
+  const multiPart = withUnderscore + withDash + mixedWithin.length
+  const minority = Math.min(withUnderscore, withDash) + mixedWithin.length
+  const minorityShare = pct(minority, multiPart)
+  if (names.length && minorityShare > 5) score = Math.min(score, 1)
   const sampleNote = sampled ? `steekproef van ${checked} van de ${ctx.componentFiles.length} bestanden` : `alle ${checked} bestanden`
   const evidence = [
     `${ctx.designTokenFiles.length} tokenbestand(en) gevonden: ${ctx.designTokenFiles.join(', ')}.`,
     `${hardcoded} van de ${checked} onderzochte componenten (${sampleNote}) bevatten nog hardcoded kleurwaarden (hex/rgb) in hun <style>.`
   ]
-  const oordeel = hardcodedShare <= 10
+  if (names.length) {
+    evidence.push(`${names.length} tokennamen in JSON: ${withUnderscore} met underscores, ${withDash} met streepjes, ${mixedWithin.length} met beide${mixedWithin.length ? ` (bv. ${mixedWithin.slice(0, 3).join(', ')})` : ''}; ${minorityShare}% wijkt af van de meest gebruikte schrijfwijze.`)
+    if (minorityShare > 5) evidence.push('Gemengde schrijfwijzen in tokennamen begrenzen de score op 1.')
+  }
+  const oordeel = names.length && minorityShare > 5 && hardcodedShare <= 40
+    ? 'Tokens bestaan, maar de tokennamen gebruiken geen eenduidige schrijfwijze en/of een deel van de componenten gebruikt hardcoded waarden.'
+    : hardcodedShare <= 10
     ? 'Vrijwel geen onderzochte componenten bevatten hardcoded kleurwaarden, wat op consequent hergebruik van de tokenset wijst — zonder diepere parsing is werkelijk tokengebruik niet te bevestigen, dus de score blijft voorzichtig op "grotendeels aanwezig".'
     : hardcodedShare <= 40
       ? 'Tokens bestaan, maar meerdere componenten gebruiken daarnaast nog eigen, hardcoded waarden.'
@@ -261,7 +335,22 @@ function analyzeDesignTokens(ctx) {
   return { score, evidence, oordeel }
 }
 
+// A component composes others when it imports a .vue file, or uses another library component
+// in its template. Globally registered components (UFlex, <u-flex>) need no import at all.
+function usesOtherComponent(content, self, names) {
+  if (/import\s+\w+\s+from\s+['"][^'"]+\.vue['"]/.test(content)) return true
+  const template = (content.match(/<template[\s\S]*<\/template>/) || [''])[0]
+  const lower = new Map([...names].map((n) => [n.toLowerCase(), n]))
+  for (const m of template.matchAll(/<([A-Za-z][\w-]*)/g)) {
+    const tag = m[1].replace(/-/g, '').toLowerCase()
+    const name = lower.get(tag) || (tag.startsWith('u') ? lower.get(tag.slice(1)) : null)
+    if (name && name !== self && /[A-Z-]/.test(m[1])) return true
+  }
+  return false
+}
+
 function analyzeCompositiepatroon(ctx) {
+  const names = realComponentNames(ctx)
   const { items, sampled } = sample(ctx.componentFiles, 25)
   let checked = 0
   let usesSlot = 0
@@ -271,7 +360,7 @@ function analyzeCompositiepatroon(ctx) {
     if (content == null) continue
     checked++
     if (/<slot\b/.test(content)) usesSlot++
-    if (/import\s+[A-Z]\w*\s+from\s+['"]\.\/[A-Z]/.test(content)) importsOtherComponent++
+    if (usesOtherComponent(content, baseName(rel), names)) importsOtherComponent++
   }
   const slotShare = pct(usesSlot, checked)
   const composeShare = pct(importsOtherComponent, checked)
@@ -284,7 +373,7 @@ function analyzeCompositiepatroon(ctx) {
   const sampleNote = sampled ? `steekproef van ${checked} van de ${ctx.componentFiles.length} bestanden` : `alle ${checked} bestanden`
   const evidence = [
     `${usesSlot} van de ${checked} onderzochte componenten (${slotShare}%, ${sampleNote}) gebruiken <slot> voor content-projectie.`,
-    `${importsOtherComponent} van de ${checked} (${composeShare}%) stellen zichzelf intern samen uit andere componenten.`,
+    `${importsOtherComponent} van de ${checked} (${composeShare}%) gebruiken andere componenten uit de bibliotheek (via import of in hun template).`,
     'Let op: datagedreven componenten (tabellen, grafieken, indicatoren) hebben legitiem geen <slot> nodig; dit percentage kan de werkelijke consistentie daardoor onderschatten.'
   ]
   const oordeel = idiomShare >= 90
@@ -294,6 +383,35 @@ function analyzeCompositiepatroon(ctx) {
       : idiomShare >= 25
         ? 'Een compositie-idioom bestaat, maar wordt naast eigen, incidentele oplossingen gebruikt.'
         : 'Compositie verschilt sterk per component; er is geen dominant, gedeeld idioom herkenbaar.'
+  return { score, evidence, oordeel }
+}
+
+function analyzeVerouderdeComponenten(ctx) {
+  const { marked } = ctx.deprecations
+  if (marked.length === 0) {
+    return { nvt: true, score: 0, evidence: ['Geen gemarkeerde verouderde componenten gevonden.'], oordeel: 'Er zijn geen markeringen om op consistentie te vergelijken.' }
+  }
+  const forms = {}
+  for (const d of marked) forms[d.form] = (forms[d.form] || 0) + 1
+  const [dominantForm, dominantCount] = Object.entries(forms).sort((a, b) => b[1] - a[1])[0]
+  const formShare = pct(dominantCount, marked.length)
+  const withSuccessor = marked.filter((d) => d.successor).length
+  const successorShare = pct(withSuccessor, marked.length)
+  let score
+  if (formShare === 100 && successorShare === 100) score = 3
+  else if (formShare >= 90 || successorShare >= 90) score = 2
+  else if (formShare >= 50) score = 1
+  else score = 0
+  const evidence = [
+    `Schrijfwijzen van de ${marked.length} markeringen: ${Object.entries(forms).map(([f, c]) => `${f} (${c})`).join(', ')}; ${formShare}% gebruikt "${dominantForm}".`,
+    `${withSuccessor} van de ${marked.length} markeringen (${successorShare}%) noemen een opvolger.`
+  ]
+  const zonder = marked.filter((d) => !d.successor).map((d) => d.name)
+  if (zonder.length) evidence.push(`Zonder opvolger: ${zonder.slice(0, 10).join(', ')}${zonder.length > 10 ? ', ...' : ''}.`)
+  const oordeel = ['Markeringen verschillen per component in vorm en inhoud.',
+    'Eén vorm overheerst, maar er komen meerdere schrijfwijzen voor en de opvolger ontbreekt vaak.',
+    'Vrijwel alle markeringen hebben dezelfde vorm, of noemen vrijwel allemaal een opvolger.',
+    'Alle markeringen hebben exact dezelfde vorm en noemen een opvolger.'][score]
   return { score, evidence, oordeel }
 }
 
@@ -442,6 +560,7 @@ function analyzeOnderhoudsactiviteit(ctx) {
   const log = ctx.gitLog
   if (!log) {
     return {
+      nvt: true,
       score: 0,
       evidence: ['Geen git-geschiedenis beschikbaar (geen git-repository of git niet geïnstalleerd).'],
       oordeel: 'Onderhoudscadans is niet te beoordelen zonder geschiedenis.'
@@ -479,6 +598,7 @@ const ANALYZERS = {
   naamgeving: analyzeNaamgeving,
   'design-tokens': analyzeDesignTokens,
   compositiepatroon: analyzeCompositiepatroon,
+  'verouderde-componenten': analyzeVerouderdeComponenten,
   versiebeheer: analyzeVersiebeheer,
   'tooling-integratie': analyzeToolingIntegratie,
   'broncode-toegankelijkheid': analyzeBroncodeToegankelijkheid,
@@ -497,7 +617,8 @@ export function analyze(ctx) {
       score: clampScore(result.score),
       max: 3,
       evidence: result.evidence,
-      oordeel: result.oordeel
+      oordeel: result.oordeel,
+      nvt: Boolean(result.nvt)
     }
   })
   return { dimensionId: 'consistentie', rows }

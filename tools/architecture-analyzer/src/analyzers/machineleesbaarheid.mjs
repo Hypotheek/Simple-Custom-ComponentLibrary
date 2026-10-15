@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { CRITERIA } from '../rubric.mjs'
+import { isPascalCase } from './vue-utils.mjs'
 
 function readFile(ctx, relPath) {
   try {
@@ -38,15 +39,41 @@ function countGroupingKeys(raw) {
   return (raw.match(/^\s{2,}['"]?[\w -]+['"]?:\s*\[/gm) || []).length
 }
 
+
+// Share of components that have a story with the same file name, i.e. appear in the Storybook
+// sidebar. Storybook builds its sidebar (and index.json) from the stories, so for a library that
+// is documented in Storybook this IS the central inventory an AI reads via the MCP addon.
+function storyCoverage(ctx) {
+  const storyBases = new Set(ctx.storyFiles.map((s) => path.basename(s).replace(/\.(stories|story)\.(mdx|[jt]sx?)$/i, '')))
+  const names = ctx.componentFiles.map((f) => path.basename(f).replace(/\.(vue|jsx|tsx)$/i, ''))
+  const covered = names.filter((n) => storyBases.has(n))
+  const missing = names.filter((n) => !storyBases.has(n))
+  return { covered: covered.length, total: names.length, share: names.length ? covered.length / names.length : 0, missing }
+}
+
 function scoreInventaris(ctx) {
   const evidence = []
   if (ctx.manifestFiles.length === 0) {
+    if (ctx.hasStorybook) {
+      const cov = storyCoverage(ctx)
+      const mainConfig = findStorybookMainFile(ctx)
+      const mcpRegistered = mainConfig ? /addon-mcp/.test(readFile(ctx, mainConfig) || '') : false
+      evidence.push(`Geen manifestbestand; Storybook genereert bij het bouwen een index.json met alle stories (${cov.covered}/${cov.total} componenten hebben een story).`)
+      evidence.push(mcpRegistered ? `${mainConfig} registreert addon-mcp: de lijst is programmatisch op te vragen.` : 'addon-mcp is niet geregistreerd in de Storybook-configuratie.')
+      evidence.push('Let op: index.json wordt gegenereerd en staat niet in de repository; de score gaat uit van een draaiende of gebouwde Storybook.')
+      if (mcpRegistered && cov.share >= 0.9) {
+        return { score: 3, evidence, oordeel: 'Het overzicht is via Storybook (index.json en addon-mcp) programmatisch in te lezen en vrijwel compleet.' }
+      }
+      if (cov.share >= 0.5) {
+        return { score: 2, evidence, oordeel: 'Storybook levert een gestructureerde lijst, maar die is niet via een tool-integratie ontsloten of mist een deel van de componenten.' }
+      }
+    }
     const bullets = ctx.readmeContent ? (ctx.readmeContent.match(/^[-*]\s+.+$/gm) || []).length : 0
     if (bullets > 0) {
-      evidence.push(`Geen manifestbestand; README bevat ${bullets} Markdown-opsommingsregel(s) als enige lijst.`)
+      evidence.push(`README bevat ${bullets} Markdown-opsommingsregel(s) als enige lijst.`)
       return { score: 1, evidence, oordeel: 'Een lijst bestaat alleen als vrije-tekst Markdown-opsomming, zonder vaste structuur.' }
     }
-    evidence.push('Geen manifestbestand (ctx.manifestFiles is leeg) en geen opsomming in de README.')
+    evidence.push('Geen manifestbestand, geen dekkende Storybook en geen opsomming in de README.')
     return { score: 0, evidence, oordeel: 'Geen enkel bestand somt componenten machinaal op.' }
   }
 
@@ -119,24 +146,35 @@ function scoreApiDocumentatie(ctx) {
   return { score: 0, evidence, oordeel: 'Documentatie bestaat, voor zover aanwezig, alleen als losse tekst.' }
 }
 
+// Does the build generate declaration files from the source (vue-tsc/tsc with declarations,
+// vite-plugin-dts)? Then they exist in the published package, even if not in the repository.
+function declarationGeneration(ctx) {
+  const scripts = Object.values(ctx.packageJson?.scripts || {}).join(' ')
+  const deps = { ...(ctx.packageJson?.dependencies || {}), ...(ctx.packageJson?.devDependencies || {}) }
+  const byScript = /vue-tsc[^&|;]*--(emitDeclarationOnly|declaration)|\btsc\b[^&|;]*--(emitDeclarationOnly|declaration)/.test(scripts)
+  const byPlugin = Boolean(deps['vite-plugin-dts'] || deps['rollup-plugin-dts'])
+  return { generated: byScript || byPlugin, byScript, byPlugin, typesField: ctx.packageJson?.types || ctx.packageJson?.typings || null }
+}
+
 function scoreTypeDefinities(ctx) {
   const evidence = []
+  const gen = declarationGeneration(ctx)
+  if (ctx.ambientDeclarationFiles?.length) evidence.push(`Niet meegeteld (omgevings-/moduledeclaraties, geen component-API): ${ctx.ambientDeclarationFiles.join(', ')}.`)
   if (ctx.typeDeclarationFiles.length > 0) {
-    const nonEmpty = ctx.typeDeclarationFiles.filter((f) => {
-      const c = readFile(ctx, f)
-      return c && c.trim().length > 0
-    })
-    evidence.push(`${ctx.typeDeclarationFiles.length} .d.ts-bestand(en) gevonden, waarvan ${nonEmpty.length} niet-leeg: ${ctx.typeDeclarationFiles.slice(0, 5).join(', ')}`)
-    if (nonEmpty.length === ctx.typeDeclarationFiles.length) {
-      return { score: 3, evidence, oordeel: 'Gebundelde .d.ts-declaraties zijn aanwezig en niet leeg, dus volledig machinaal te extraheren.' }
-    }
-    return { score: 2, evidence, oordeel: 'Type-declaraties zijn gebundeld, maar niet allemaal gevuld.' }
+    evidence.push(`${ctx.typeDeclarationFiles.length} .d.ts-bestand(en) met component-API in de repository: ${ctx.typeDeclarationFiles.slice(0, 5).join(', ')}`)
+    return { score: 3, evidence, oordeel: 'Gebundelde declaraties van de component-API staan in de repository en zijn volledig machinaal te extraheren.' }
+  }
+  if (gen.generated) {
+    evidence.push(gen.byScript ? 'Een buildscript genereert declaratiebestanden (vue-tsc/tsc met --emitDeclarationOnly of --declaration).' : 'Een declaratie-plugin (vite-plugin-dts/rollup-plugin-dts) staat in de dependencies.')
+    evidence.push(gen.typesField ? `package.json "types" wijst naar ${gen.typesField}.` : 'package.json heeft geen "types"-veld.')
+    evidence.push('De gegenereerde bestanden staan niet in de repository; of ze de hele publieke API dekken, is zonder build niet te controleren.')
+    return { score: 2, evidence, oordeel: 'Type-declaraties worden bij het bouwen gegenereerd; volledige dekking van de publieke API is statisch niet te bevestigen.' }
   }
   if (ctx.hasTypeScript) {
-    evidence.push('TypeScript-broncode gedetecteerd, maar geen gebundelde .d.ts-declaratiebestanden.')
-    return { score: 1, evidence, oordeel: 'Types bestaan impliciet in TS-broncode, maar zonder gebundelde declaraties is er niets machinaal te lezen.' }
+    evidence.push('TypeScript-broncode gedetecteerd, maar geen declaraties in de repository en geen generatie in de build.')
+    return { score: 1, evidence, oordeel: 'Types bestaan in de TS-broncode, maar zonder gebundelde declaraties is er niets los machinaal te lezen.' }
   }
-  evidence.push('Geen .ts/.tsx-bestanden, geen typescript-dependency en geen .d.ts-bestanden gevonden.')
+  evidence.push('Geen TypeScript en geen .d.ts-bestanden gevonden.')
   return { score: 0, evidence, oordeel: 'Geen enkel type is machinaal te extraheren.' }
 }
 
@@ -168,34 +206,37 @@ function scoreVoorbeelden(ctx) {
   return { score: 2, evidence, oordeel: 'Voorbeeldbestanden zijn programmatisch vindbaar, maar onvoldoende betrouwbaar aan hun component te koppelen.' }
 }
 
+function lintNamingRules(ctx) {
+  const configs = ctx.allFiles.filter((f) => /(^|\/)(\.eslintrc(\.\w+)?|eslint\.config\.(m?[jt]s|cjs))$/.test(f))
+  const namingRuleRe = /prop-name-casing|component-name-in-template-casing|component-definition-name-casing|multi-word-component-names|naming-convention|vue3-strongly-recommended|vue3-recommended|plugin:vue\/(strongly-)?recommended/
+  const withRules = configs.filter((f) => namingRuleRe.test(readFile(ctx, f) || ''))
+  return { configs, withRules }
+}
+
 function scoreNaamgeving(ctx) {
   const evidence = []
   const names = ctx.componentFiles.map(basenameNoExt)
   if (names.length === 0) {
     return { score: 0, evidence: ['Geen componentbestanden gevonden om een patroon op te toetsen.'], oordeel: 'Er is niets om een conventie op te toetsen.' }
   }
-  const firstCharCounts = new Map()
-  for (const n of names) firstCharCounts.set(n[0], (firstCharCounts.get(n[0]) || 0) + 1)
-  const [dominantChar] = [...firstCharCounts.entries()].sort((a, b) => b[1] - a[1])[0]
-  const prefixRegex = new RegExp(`^${dominantChar}[A-Z][A-Za-z0-9]*$`)
-  const matched = names.filter((n) => prefixRegex.test(n))
-  const matchRate = matched.length / names.length
-  evidence.push(`${matched.length}/${names.length} (${Math.round(matchRate * 100)}%) componentbestanden matchen de simpele regex ^${dominantChar}[A-Z][A-Za-z0-9]*$.`)
+  const pascal = names.filter(isPascalCase)
+  const pascalRate = pascal.length / names.length
+  evidence.push(`${pascal.length}/${names.length} (${Math.round(pascalRate * 100)}%) componentbestanden voldoen aan de PascalCase-regel ^[A-Z][A-Za-z0-9]*$.`)
 
-  const lintFound = hasLintConfig(ctx)
-  const lintScript = Boolean(ctx.packageJson?.scripts?.lint)
-  evidence.push(lintFound ? 'Er is een ESLint-configuratiebestand gevonden.' : 'Geen ESLint- (of vergelijkbaar) configuratiebestand gevonden.')
+  const { configs, withRules } = lintNamingRules(ctx)
+  const lintRuns = Object.values(ctx.packageJson?.scripts || {}).some((s) => /\beslint\b/.test(s))
+  evidence.push(configs.length ? `ESLint-configuratie gevonden: ${configs.join(', ')}.` : 'Geen ESLint-configuratiebestand gevonden.')
+  evidence.push(withRules.length ? `Naamgevingsregels (of een eslint-plugin-vue-preset die ze bevat) in: ${withRules.join(', ')}.` : 'Geen naamgevingsregels gevonden in de ESLint-configuratie.')
+  evidence.push(lintRuns ? 'Een npm-script voert ESLint uit.' : 'Geen npm-script dat ESLint uitvoert.')
 
-  if (matchRate === 1 && lintFound && lintScript) {
-    evidence.push(`package.json bevat een "lint"-script ("${ctx.packageJson.scripts.lint}").`)
-    return { score: 3, evidence, oordeel: 'De conventie wordt afgedwongen door een lint-opzet die ook daadwerkelijk als script is aangesloten, dus 100% programmatisch te verifiëren.' }
+  if (withRules.length && lintRuns && pascalRate >= 0.95) {
+    return { score: 3, evidence, oordeel: 'De naamgeving wordt afgedwongen door lint-regels die ook daadwerkelijk via een script draaien.' }
   }
-  if (matchRate === 1 && lintFound) {
-    return { score: 2, evidence, oordeel: 'De conventie is grotendeels met eenvoudige regels/lint-configuratie te controleren, al is niet bevestigd dat die lint-config de naamgeving zelf afdwingt.' }
+  if (pascalRate >= 0.95) {
+    return { score: 2, evidence, oordeel: 'De conventie is met eenvoudige regels te controleren (PascalCase voor componenten), maar wordt niet aantoonbaar door een lint-regel afgedwongen.' }
   }
-  if (matchRate > 0) {
-    evidence.push('Het patroon is niet gekoppeld aan een aantoonbaar afdwingende lint-regel of generator.')
-    return { score: 1, evidence, oordeel: 'Een deel van de conventie (het prefix) is met een simpele regex te herkennen, maar wordt nergens automatisch afgedwongen.' }
+  if (pascalRate > 0) {
+    return { score: 1, evidence, oordeel: 'Een deel van de conventie is met een simpele regel te herkennen, maar niet voor alle componenten.' }
   }
   return { score: 0, evidence, oordeel: 'Naamgeving is niet af te leiden zonder de conventie te kennen; geen regel is programmatisch te controleren.' }
 }
@@ -203,7 +244,7 @@ function scoreNaamgeving(ctx) {
 function scoreDesignTokens(ctx) {
   const evidence = []
   if (ctx.designTokenFiles.length === 0) {
-    const candidates = ctx.allFiles.filter((f) => /\.(css|vue)$/.test(f)).slice(0, 30)
+    const candidates = ctx.allFiles.filter((f) => /\.(css|vue)$/.test(f))
     let scattered = 0
     for (const f of candidates) {
       const c = readFile(ctx, f)
@@ -211,8 +252,8 @@ function scoreDesignTokens(ctx) {
     }
     evidence.push(
       scattered > 0
-        ? `Geen apart tokenbestand (ctx.designTokenFiles is leeg); CSS custom properties komen verspreid voor in minstens ${scattered}/${candidates.length} gesamplede bestanden.`
-        : 'Geen apart tokenbestand en geen CSS custom properties gevonden in de gesamplede bestanden.'
+        ? `Geen apart tokenbestand (ctx.designTokenFiles is leeg); CSS custom properties komen verspreid voor in minstens ${scattered}/${candidates.length} onderzochte bestanden.`
+        : 'Geen apart tokenbestand en geen CSS custom properties gevonden in de onderzochte bestanden.'
     )
     return { score: 0, evidence, oordeel: 'Tokens staan, als ze al bestaan, verspreid in CSS zonder gestructureerd brondocument.' }
   }
@@ -277,6 +318,19 @@ function scoreCompositiepatroon(ctx) {
     return { score: 3, evidence, oordeel: 'Zowel de bouwstenen als hun onderlinge samenhang zijn machinaal op te vragen.' }
   }
   return { score: 2, evidence, oordeel: 'De bouwstenen zijn op te vragen via het categoriebestand, maar hun onderlinge relatie is er niet in gecodeerd.' }
+}
+
+function scoreVerouderdeComponenten(ctx) {
+  const { marked } = ctx.deprecations
+  if (marked.length === 0) {
+    return { score: 0, evidence: ['Geen markeringen van verouderde componenten gevonden.'], oordeel: 'Er zijn geen markeringen om te lezen.' }
+  }
+  const jsdoc = marked.filter((d) => d.form === '@deprecated').length
+  const share = jsdoc / marked.length
+  const evidence = [`${jsdoc} van de ${marked.length} markeringen gebruiken de JSDoc-tag @deprecated, die editors en tools herkennen; de rest is vrije tekst.`]
+  if (share >= 0.95) return { score: 3, evidence, oordeel: 'Alle markeringen gebruiken @deprecated en zijn zonder interpretatie door tools te herkennen.' }
+  if (share > 0) return { score: 2, evidence, oordeel: 'Een deel van de markeringen gebruikt @deprecated; de rest moet als vrije tekst geïnterpreteerd worden.' }
+  return { score: 1, evidence, oordeel: 'Markeringen staan alleen als vrije tekst in commentaar; een tool moet ze interpreteren.' }
 }
 
 function scoreVersiebeheer(ctx) {
@@ -410,8 +464,8 @@ function scoreTestdekking(ctx) {
 function scoreOnderhoudsactiviteit(ctx) {
   const evidence = []
   if (!ctx.gitLog) {
-    evidence.push('Geen git-geschiedenis beschikbaar (ctx.gitLog is null).')
-    return { score: 0, evidence, oordeel: 'Geschiedenis is niet programmatisch te bevragen.' }
+    evidence.push('Geen git-geschiedenis in de geanalyseerde map (ctx.gitLog is null).')
+    return { nvt: true, score: 0, evidence, oordeel: 'Zonder git-geschiedenis is niet te meten of die programmatisch te bevragen is.' }
   }
   const messages = ctx.gitLog.recentMessagesSample || []
   const conventionalRe = /^(feat|fix|chore|docs|refactor|test|style|perf|build|ci)(\([\w-]+\))?!?:\s/i
@@ -440,6 +494,7 @@ const SCORERS = {
   naamgeving: scoreNaamgeving,
   'design-tokens': scoreDesignTokens,
   compositiepatroon: scoreCompositiepatroon,
+  'verouderde-componenten': scoreVerouderdeComponenten,
   versiebeheer: scoreVersiebeheer,
   'tooling-integratie': scoreToolingIntegratie,
   'broncode-toegankelijkheid': scoreBroncodeToegankelijkheid,
@@ -451,8 +506,8 @@ export function analyze(ctx) {
   const rows = CRITERIA.map((criterion) => {
     const scorer = SCORERS[criterion.id]
     if (!scorer) throw new Error(`Geen machineleesbaarheid-scorer voor criterion "${criterion.id}"`)
-    const { score, evidence, oordeel } = scorer(ctx)
-    return { criterionId: criterion.id, score, max: 3, evidence, oordeel }
+    const { score, evidence, oordeel, nvt } = scorer(ctx)
+    return { criterionId: criterion.id, score, max: 3, evidence, oordeel, nvt: Boolean(nvt) }
   })
   return { dimensionId: 'machineleesbaarheid', rows }
 }

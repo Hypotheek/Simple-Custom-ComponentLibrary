@@ -1,7 +1,22 @@
-import { CRITERIA, DIMENSIONS, MAX_SCORE_PER_CELL, MAX_SCORE_PER_CRITERION, MAX_SCORE_PER_DIMENSION, MAX_TOTAL_SCORE, grade } from './rubric.mjs'
+import { CRITERIA, DIMENSIONS, MAX_SCORE_PER_CELL, grade } from './rubric.mjs'
 
 // Combines the four per-dimension analyzer outputs into one matrix: CRITERIA.length rows x
 // DIMENSIONS.length columns, plus row/column/total subtotals and a qualitative grade at each level.
+//
+// A cell can be marked "niet van toepassing" (nvt: true) when it cannot be measured, for example
+// without git history, or when the dimension has nothing to judge because the subject is absent
+// (absence is already scored once, under beschikbaarheid). Such cells are shown, but left out of
+// every score AND every maximum, so they neither raise nor lower the result.
+
+export const NVT_LABEL = 'n.v.t.'
+
+function cellMax(cell) {
+  return cell.nvt ? 0 : MAX_SCORE_PER_CELL
+}
+
+function cellScore(cell) {
+  return cell.nvt ? 0 : cell.score
+}
 
 export function aggregate(dimensionResults) {
   const byDimension = new Map(dimensionResults.map((d) => [d.dimensionId, d]))
@@ -16,7 +31,12 @@ export function aggregate(dimensionResults) {
     for (const criterion of CRITERIA) {
       const row = rowsById.get(criterion.id)
       if (!row) throw new Error(`Analyzer for "${dim.id}" is missing a row for criterion "${criterion.id}"`)
-      if (!Number.isInteger(row.score) || row.score < 0 || row.score > MAX_SCORE_PER_CELL) {
+      if (row.nvt) {
+        // Keep the shape renderers expect (integer score), but make the status explicit.
+        row.score = 0
+        row.nvt = true
+        if (row.oordeel && !row.oordeel.startsWith('Niet van toepassing')) row.oordeel = `Niet van toepassing: ${row.oordeel}`
+      } else if (!Number.isInteger(row.score) || row.score < 0 || row.score > MAX_SCORE_PER_CELL) {
         throw new Error(`Analyzer for "${dim.id}", criterion "${criterion.id}": score must be an integer 0-${MAX_SCORE_PER_CELL}, got ${row.score}`)
       }
       cellsByCriterion.get(criterion.id)[dim.id] = row
@@ -25,37 +45,42 @@ export function aggregate(dimensionResults) {
 
   const rows = CRITERIA.map((criterion) => {
     const cells = cellsByCriterion.get(criterion.id)
-    const score = DIMENSIONS.reduce((sum, dim) => sum + cells[dim.id].score, 0)
+    const score = DIMENSIONS.reduce((sum, dim) => sum + cellScore(cells[dim.id]), 0)
+    const max = DIMENSIONS.reduce((sum, dim) => sum + cellMax(cells[dim.id]), 0)
     return {
       criterionId: criterion.id,
       label: criterion.label,
       omschrijving: criterion.omschrijving,
       cells,
       score,
-      max: MAX_SCORE_PER_CRITERION,
-      grade: grade(score, MAX_SCORE_PER_CRITERION)
+      max,
+      grade: max > 0 ? grade(score, max) : NVT_LABEL
     }
   })
 
   const columns = DIMENSIONS.map((dim) => {
     const result = byDimension.get(dim.id)
-    const score = result.rows.reduce((sum, r) => sum + r.score, 0)
+    const score = result.rows.reduce((sum, r) => sum + cellScore(r), 0)
+    const max = result.rows.reduce((sum, r) => sum + cellMax(r), 0)
     return {
       dimensionId: dim.id,
       label: dim.label,
       score,
-      max: MAX_SCORE_PER_DIMENSION,
-      grade: grade(score, MAX_SCORE_PER_DIMENSION)
+      max,
+      grade: max > 0 ? grade(score, max) : NVT_LABEL
     }
   })
 
   const totalScore = columns.reduce((sum, c) => sum + c.score, 0)
+  const totalMax = columns.reduce((sum, c) => sum + c.max, 0)
+  const nvtCells = rows.reduce((n, r) => n + DIMENSIONS.filter((d) => r.cells[d.id].nvt).length, 0)
 
   return {
     rows,
     columns,
     totalScore,
-    totalMax: MAX_TOTAL_SCORE,
-    totalGrade: grade(totalScore, MAX_TOTAL_SCORE)
+    totalMax,
+    nvtCells,
+    totalGrade: totalMax > 0 ? grade(totalScore, totalMax) : NVT_LABEL
   }
 }

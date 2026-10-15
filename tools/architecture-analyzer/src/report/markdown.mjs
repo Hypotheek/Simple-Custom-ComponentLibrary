@@ -1,7 +1,13 @@
 import { DIMENSIONS, SCORE_LABELS } from '../rubric.mjs'
 
-function scoreCell(score) {
-  return `${score} (${SCORE_LABELS[score]})`
+const NVT = 'n.v.t.'
+
+function scoreCell(cell) {
+  return cell.nvt ? `${NVT} (niet meetbaar)` : `${cell.score} (${SCORE_LABELS[cell.score]})`
+}
+
+function measuredCells(matrix, dimId) {
+  return matrix.rows.filter((r) => !r.cells[dimId].nvt).length
 }
 
 export function renderMarkdown(matrix, meta) {
@@ -18,10 +24,14 @@ export function renderMarkdown(matrix, meta) {
   lines.push('')
   lines.push(`**${matrix.totalScore} / ${matrix.totalMax}** — ${matrix.totalGrade}`)
   lines.push('')
-  lines.push(`| Dimensie | Score | Oordeel |`)
-  lines.push(`| --- | --- | --- |`)
+  lines.push(`| Dimensie | Score | Gemeten cellen | Oordeel |`)
+  lines.push(`| --- | --- | --- | --- |`)
   for (const col of matrix.columns) {
-    lines.push(`| ${col.label} | ${col.score} / ${col.max} | ${col.grade} |`)
+    lines.push(`| ${col.label} | ${col.score} / ${col.max} | ${measuredCells(matrix, col.dimensionId)} van ${matrix.rows.length} | ${col.grade} |`)
+  }
+  if (matrix.nvtCells) {
+    lines.push('')
+    lines.push(`${matrix.nvtCells} cel(len) zijn n.v.t.: ze zijn niet te meten (bv. zonder git-geschiedenis) of er is niets om te beoordelen omdat het onderdeel ontbreekt. Ze tellen niet mee in de score en niet in het maximum.`)
   }
   lines.push('')
   lines.push(`## Matrix`)
@@ -30,8 +40,9 @@ export function renderMarkdown(matrix, meta) {
   lines.push(`| ${header.join(' | ')} |`)
   lines.push(`| ${header.map(() => '---').join(' | ')} |`)
   for (const row of matrix.rows) {
-    const cellScores = DIMENSIONS.map((d) => row.cells[d.id].score)
-    lines.push(`| ${row.label} | ${cellScores.join(' | ')} | ${row.score} / ${row.max} | ${row.grade} |`)
+    const cellScores = DIMENSIONS.map((d) => (row.cells[d.id].nvt ? NVT : row.cells[d.id].score))
+    const total = row.max > 0 ? `${row.score} / ${row.max}` : NVT
+    lines.push(`| ${row.label} | ${cellScores.join(' | ')} | ${total} | ${row.grade} |`)
   }
   lines.push('')
   lines.push(`## Toelichting per onderdeel`)
@@ -43,7 +54,7 @@ export function renderMarkdown(matrix, meta) {
     lines.push('')
     for (const dim of DIMENSIONS) {
       const cell = row.cells[dim.id]
-      lines.push(`**${dim.label}: ${scoreCell(cell.score)}**`)
+      lines.push(`**${dim.label}: ${scoreCell(cell)}**`)
       lines.push('')
       lines.push(cell.oordeel)
       if (cell.evidence?.length) {

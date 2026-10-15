@@ -246,6 +246,37 @@ export const CRITERIA = [
     }
   },
   {
+    id: 'verouderde-componenten',
+    label: 'Verouderde componenten & opvolgers',
+    omschrijving: 'Welke componenten verouderd zijn en door welk component ze vervangen worden.',
+    rubric: {
+      beschikbaarheid: [
+        'Verouderde componenten zijn nergens als zodanig te herkennen.',
+        'Een minderheid van de verouderde componenten is gemarkeerd.',
+        'De meeste verouderde componenten zijn gemarkeerd, met enkele ongemarkeerde (bv. een oudere versie naast een V2).',
+        'Elk verouderd component is gemarkeerd.'
+      ],
+      consistentie: [
+        'Markeringen verschillen per component in vorm en inhoud.',
+        'Eén vorm overheerst, maar er komen meerdere schrijfwijzen voor en de opvolger staat er meestal niet bij.',
+        'Vrijwel alle markeringen hebben dezelfde vorm, of noemen vrijwel allemaal een opvolger.',
+        'Alle markeringen hebben exact dezelfde vorm en noemen allemaal een opvolger.'
+      ],
+      machineleesbaarheid: [
+        'Er zijn geen markeringen om te lezen.',
+        'Markeringen staan alleen als vrije tekst in commentaar.',
+        'Een deel van de markeringen gebruikt een door tools herkende vorm (JSDoc @deprecated).',
+        'Alle markeringen gebruiken een door tools herkende vorm (JSDoc @deprecated), zodat editors en AI-tools ze zonder interpretatie herkennen.'
+      ],
+      actualiteit: [
+        'Markeringen verwijzen niet naar een opvolger die bestaat.',
+        'Een minderheid van de markeringen verwijst naar een opvolger die in de bibliotheek bestaat.',
+        'De meeste markeringen verwijzen naar een opvolger die in de bibliotheek bestaat.',
+        'Elke markering verwijst naar een opvolger die in de huidige bibliotheek bestaat.'
+      ]
+    }
+  },
+  {
     id: 'versiebeheer',
     label: 'Versiebeheer & wijzigingslog',
     omschrijving: 'Semantische versienummering en een leesbare changelog van wat er wijzigt.',

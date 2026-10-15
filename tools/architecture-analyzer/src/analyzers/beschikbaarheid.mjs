@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { CRITERIA } from '../rubric.mjs'
+import { extractPropNames } from './vue-utils.mjs'
 
 // Availability only asks whether an aspect is present and findable at all -- consistency,
 // machine-readability and freshness are the sibling dimensions' job, not this one's.
@@ -17,6 +18,23 @@ function row(criterionId, score, evidence, oordeel) {
   return { criterionId, score: Math.max(0, Math.min(3, Math.round(score))), evidence, oordeel }
 }
 
+// Cell that cannot be measured; aggregate() leaves it out of both score and maximum.
+function nvtRow(criterionId, evidence, oordeel) {
+  return { criterionId, score: 0, evidence, oordeel, nvt: true }
+}
+
+
+// Share of components that have a story with the same file name, i.e. appear in the Storybook
+// sidebar. Storybook builds its sidebar (and index.json) from the stories, so for a library that
+// is documented in Storybook this IS the central inventory an AI reads via the MCP addon.
+function storyCoverage(ctx) {
+  const storyBases = new Set(ctx.storyFiles.map((s) => path.basename(s).replace(/\.(stories|story)\.(mdx|[jt]sx?)$/i, '')))
+  const names = ctx.componentFiles.map((f) => path.basename(f).replace(/\.(vue|jsx|tsx)$/i, ''))
+  const covered = names.filter((n) => storyBases.has(n))
+  const missing = names.filter((n) => !storyBases.has(n))
+  return { covered: covered.length, total: names.length, share: names.length ? covered.length / names.length : 0, missing }
+}
+
 function analyzeInventaris(ctx) {
   const evidence = []
   if (ctx.manifestFiles.length > 0) {
@@ -25,22 +43,30 @@ function analyzeInventaris(ctx) {
       'Eén centraal, machinaal leesbaar overzicht (manifest-/categoriebestand) somt de componenten op, direct vindbaar.')
   }
   if (ctx.hasStorybook) {
-    evidence.push('geen manifestbestand, maar Storybook is aanwezig (sidebar toont componentenlijst)')
+    const cov = storyCoverage(ctx)
+    evidence.push(`geen manifestbestand; Storybook is aanwezig en ${cov.covered} van de ${cov.total} componenten (${Math.round(cov.share * 100)}%) staan met een eigen story in de sidebar`)
+    if (cov.missing.length) evidence.push(`zonder story (niet in het overzicht): ${cov.missing.slice(0, 10).join(', ')}${cov.missing.length > 10 ? ', ...' : ''}`)
+    if (cov.share >= 0.9) {
+      return row('inventaris', 3, evidence, 'De Storybook-sidebar is één centraal overzicht waarin vrijwel alle componenten staan.')
+    }
+    if (cov.share >= 0.5) {
+      return row('inventaris', 2, evidence, 'De Storybook-sidebar toont de meeste componenten, maar een deel ontbreekt erin.')
+    }
   }
   const readme = ctx.readmeContent || ''
   const hasComponentsHeading = /#+\s*(components?|componenten)/i.test(readme)
   if (hasComponentsHeading) {
     evidence.push(`${ctx.readmeFile} bevat een "componenten"-sectie`)
-    const mentionsCount = (readme.match(/\bS[A-Z][a-zA-Z]+\b/g) || new Set()).length
-    const looksComplete = ctx.componentCount > 0 && mentionsCount >= ctx.componentCount * 0.6
-    evidence.push(`componentbestanden in repo: ${ctx.componentCount}, componentnamen genoemd in README: ~${mentionsCount}`)
+    const names = ctx.componentFiles.map((f) => path.basename(f).replace(/\.(vue|jsx|tsx)$/i, ''))
+    const mentioned = names.filter((n) => new RegExp(`\\b${n}\\b`).test(readme)).length
+    const looksComplete = names.length > 0 && mentioned >= names.length * 0.6
+    evidence.push(`componenten in repo: ${names.length}, daarvan bij naam genoemd in README: ${mentioned}`)
     return row('inventaris', looksComplete ? 2 : 1, evidence,
       looksComplete
         ? 'Een lijst van vrijwel alle componenten is te vinden in de README, maar niet als apart gestructureerd bestand.'
         : 'Slechts een gedeeltelijke lijst is te vinden (bv. een stuk van de README); niet alle componenten staan erin.')
   }
-  evidence.push('geen manifestbestand en geen componenten-overzicht in de README gevonden')
-  evidence.push(`enige signaal is de broncode zelf (${ctx.componentCount} componentbestanden)`)
+  evidence.push('geen manifestbestand, geen dekkend Storybook-overzicht en geen componenten-overzicht in de README gevonden')
   return row('inventaris', 0, evidence,
     'Geen enkele plek somt de componenten op; ze zijn alleen te achterhalen door de broncode handmatig te doorzoeken.')
 }
@@ -55,10 +81,12 @@ function analyzeApiDocumentatie(ctx) {
   const propsRe = /\b(props|defineProps|PropTypes|@prop|@param)\b/i
   const autodocsRe = /autodocs/
 
-  const componentSample = ctx.componentFiles.slice(0, 15)
+  const componentSample = ctx.componentFiles
   let documented = 0
   let withJsdoc = 0
   let withAutodocsStory = 0
+  let emitting = 0
+  let emitsDeclared = 0
   for (const rel of componentSample) {
     const content = safeRead(ctx, rel)
     const hasJsdoc = content !== null && jsdocRe.test(content) && propsRe.test(content)
@@ -71,45 +99,77 @@ function analyzeApiDocumentatie(ctx) {
     if (hasAutodocs) withAutodocsStory++
 
     if (hasJsdoc || hasAutodocs) documented++
+
+    // Events: a component that emits should declare them (emits / defineEmits), otherwise
+    // docs tools cannot list them and an AI has to read the source to find them.
+    if (content !== null && /\$emit\(|\bemit\(/.test(content)) {
+      emitting++
+      if (/\bemits\s*:|defineEmits/.test(content)) emitsDeclared++
+    }
   }
   const sampleSize = componentSample.length
-  evidence.push(`${withAutodocsStory}/${sampleSize} gesamplede componenten hebben een story met 'autodocs'-tag`)
-  evidence.push(`${withJsdoc}/${sampleSize} gesamplede componentbestanden bevatten JSDoc-achtige commentaarblokken bij props`)
+  evidence.push(`${withAutodocsStory}/${sampleSize} componenten hebben een story met 'autodocs'-tag`)
+  evidence.push(`${withJsdoc}/${sampleSize} componentbestanden bevatten JSDoc-achtige commentaarblokken bij props`)
 
   const ratio = sampleSize > 0 ? documented / sampleSize : 0
   if (sampleSize === 0) {
-    return row('api-documentatie', 0, evidence, 'Geen componentbestanden beschikbaar om te samplen; documentatie is niet vastgesteld.')
+    return row('api-documentatie', 0, evidence, 'Geen componentbestanden gevonden; documentatie is niet vastgesteld.')
   }
   if (documented === 0) {
     return row('api-documentatie', 0, evidence,
       'Geen documentatie aangetroffen; props zijn alleen af te leiden uit de component-broncode zelf.')
   }
   if (ratio < 0.5) {
-    return row('api-documentatie', 1, evidence, 'Documentatie is aanwezig voor een minderheid van de gesamplede componenten.')
+    return row('api-documentatie', 1, evidence, 'Documentatie is aanwezig voor een minderheid van de componenten.')
   }
   if (ratio < 0.9) {
-    return row('api-documentatie', 2, evidence, 'Documentatie is aanwezig voor de meeste gesamplede componenten, met hiaten.')
+    return row('api-documentatie', 2, evidence, 'Documentatie is aanwezig voor de meeste componenten, met hiaten.')
   }
-  evidence.push('let op: autodocs leidt props automatisch af uit de runtime-declaratie, maar documenteert lang niet altijd expliciet events/slots met betekenis')
-  return row('api-documentatie', 3, evidence, 'Documentatie (grotendeels automatisch via Storybook autodocs) is aanwezig voor vrijwel elk gesampled component.')
+  const emitsShare = emitting > 0 ? emitsDeclared / emitting : 1
+  evidence.push(`${emitsDeclared}/${emitting} componenten die events uitsturen, declareren die events (emits/defineEmits)`)
+  if (emitsShare < 0.8) {
+    return row('api-documentatie', 2, evidence,
+      'Props zijn voor vrijwel elk component gedocumenteerd, maar events worden bij een deel van de componenten niet gedeclareerd; de hoogste score vraagt props, events én slots.')
+  }
+  return row('api-documentatie', 3, evidence, 'Documentatie van props (docstrings en/of Storybook autodocs) en gedeclareerde events is aanwezig voor vrijwel elk component.')
 }
 
 function analyzeTypeDefinities(ctx) {
-  const evidence = [`hasTypeScript: ${ctx.hasTypeScript}`, `typeDeclarationFiles: ${ctx.typeDeclarationFiles.length}`]
-  if (!ctx.hasTypeScript && ctx.typeDeclarationFiles.length === 0) {
-    return row('type-definities', 0, evidence, 'Geen type-informatie aanwezig; alles is impliciet (geen TypeScript, geen .d.ts-bestanden).')
+  // Measured per component: is the script TypeScript, and does every prop declare a type?
+  // A plain String type still leaves the allowed values open (iconsize: 's' | 'm' | 'l' ...),
+  // so literal types via PropType<...> are reported separately and needed for the top score.
+  const total = ctx.componentFiles.length
+  if (total === 0) return row('type-definities', 0, ['Geen componentbestanden gevonden.'], 'Niet te beoordelen zonder componenten.')
+  let tsFiles = 0
+  let withProps = 0
+  let typedProps = 0
+  let literalTyped = 0
+  for (const rel of ctx.componentFiles) {
+    const content = safeRead(ctx, rel) || ''
+    if (/<script[^>]*lang=["']tsx?["']/.test(content) || /\.tsx$/.test(rel)) tsFiles++
+    if (extractPropNames(content).length === 0 && !/defineProps\s*</.test(content)) continue
+    withProps++
+    if (/defineProps\s*</.test(content) || /\btype\s*:/.test(content)) typedProps++
+    if (/PropType\s*<\s*['"]|defineProps\s*<[^>]*['"]/.test(content)) literalTyped++
   }
-  if (ctx.typeDeclarationFiles.length === 0) {
-    evidence.push('TypeScript is aanwezig in de dependencies, maar geen gepubliceerde .d.ts-declaraties gevonden')
-    return row('type-definities', 1, evidence, 'Types bestaan mogelijk in de broncode, maar voor een klein deel zichtbaar/gepubliceerd; geen .d.ts-bestanden gevonden.')
+  const tsShare = tsFiles / total
+  const typedShare = withProps ? typedProps / withProps : 1
+  const literalShare = withProps ? literalTyped / withProps : 1
+  const evidence = [
+    `${tsFiles}/${total} componenten gebruiken TypeScript in <script>`,
+    `${typedProps}/${withProps} componenten met props geven hun props een type`,
+    `${literalTyped}/${withProps} componenten met props leggen toegestane waarden vast met letterlijke types (PropType<'a' | 'b'>)`
+  ]
+  if (ctx.ambientDeclarationFiles?.length) evidence.push(`niet meegeteld (omgevings-/moduledeclaraties): ${ctx.ambientDeclarationFiles.join(', ')}`)
+  if (tsShare < 0.05 && typedShare < 0.05) return row('type-definities', 0, evidence, 'Geen type-informatie aanwezig; alles is impliciet.')
+  if (tsShare < 0.5 || typedShare < 0.5) return row('type-definities', 1, evidence, 'Types voor een klein deel van de componenten of props.')
+  if (tsShare >= 0.95 && typedShare >= 0.95 && literalShare >= 0.5) {
+    return row('type-definities', 3, evidence, 'Vrijwel alle props zijn expliciet getypeerd, bij de meeste componenten inclusief de toegestane waarden.')
   }
-  const ratio = ctx.componentCount > 0 ? ctx.typeDeclarationFiles.length / ctx.componentCount : 0
-  if (ratio < 0.5) {
-    evidence.push(`${ctx.typeDeclarationFiles.length} .d.ts-bestanden tegenover ${ctx.componentCount} componenten`)
-    return row('type-definities', 2, evidence, 'Types zijn aanwezig voor de meeste componenten, met losse ontbrekende gevallen.')
-  }
-  evidence.push(`${ctx.typeDeclarationFiles.length} .d.ts-bestanden tegenover ${ctx.componentCount} componenten`)
-  return row('type-definities', 3, evidence, 'Volledige, expliciete type-declaraties zijn aanwezig voor vrijwel alle componenten.')
+  return row('type-definities', 2, evidence,
+    typedShare >= 0.95
+      ? 'Vrijwel alle props hebben een type, maar meestal een algemeen type (String) zonder vastgelegde toegestane waarden.'
+      : 'Types voor de meeste componenten, met ontbrekende gevallen.')
 }
 
 function analyzeVoorbeelden(ctx) {
@@ -196,6 +256,32 @@ function analyzeCompositiepatroon(ctx) {
   return row('compositiepatroon', 0, evidence, 'Geen herkenbaar compositiepatroon vindbaar; elk component lijkt zijn eigen structuur intern te regelen, voor zover na te gaan.')
 }
 
+// Are superseded components recognisable as such? "Suspected" = marked, or the older half of a
+// Name/NameV2 pair. The share of suspected components that carries a marker is the score.
+function analyzeVerouderdeComponenten(ctx) {
+  const { marked, versionedPairs, unmarkedOlderVersions } = ctx.deprecations
+  const suspected = marked.length + unmarkedOlderVersions.length
+  const evidence = [
+    `${marked.length} componenten zijn in commentaar als verouderd gemarkeerd`,
+    `${versionedPairs.length} componenten bestaan naast een nieuwere versie (bv. ${versionedPairs.slice(0, 3).map((p) => `${p.older} → ${p.newer}`).join(', ') || 'geen'})`,
+    unmarkedOlderVersions.length
+      ? `oudere versie zonder markering: ${unmarkedOlderVersions.join(', ')}`
+      : 'elke oudere versie in een versiepaar is gemarkeerd'
+  ]
+  if (suspected === 0) {
+    return nvtRow('verouderde-componenten', evidence, 'Er zijn geen verouderde componenten gevonden, dus er is niets te markeren.')
+  }
+  const share = marked.length / suspected
+  const score = share >= 0.95 ? 3 : share >= 0.75 ? 2 : share >= 0.4 ? 1 : 0
+  evidence.push(`${marked.length} van de ${suspected} vermoedelijk verouderde componenten (${Math.round(share * 100)}%) zijn gemarkeerd`)
+  evidence.push('ongemarkeerde verouderde componenten zonder nieuwere versie (bv. alleen vervangen door een ander component) zijn niet automatisch te vinden')
+  const oordeel = ['Verouderde componenten zijn vrijwel nergens als zodanig te herkennen.',
+    'Een minderheid van de verouderde componenten is gemarkeerd.',
+    'De meeste verouderde componenten zijn gemarkeerd, met enkele ongemarkeerde.',
+    'Vrijwel elk verouderd component is gemarkeerd.'][score]
+  return row('verouderde-componenten', score, evidence, oordeel)
+}
+
 function analyzeVersiebeheer(ctx) {
   const evidence = []
   const version = ctx.packageJson?.version
@@ -279,10 +365,11 @@ function analyzeTestdekking(ctx) {
   const evidence = [`testFiles: ${ctx.testFiles.length}`, `componentCount: ${ctx.componentCount}`]
   const devDeps = { ...(ctx.packageJson?.dependencies || {}), ...(ctx.packageJson?.devDependencies || {}) }
   const hasA11yAddon = Object.keys(devDeps).some((d) => d.includes('a11y') || d.includes('axe'))
-  const hasVitestAddon = Object.keys(devDeps).some((d) => d.includes('vitest') || d.includes('@storybook/test') || d.includes('jest'))
+  const RUNNERS = ['vitest', 'jest', 'playwright', '@playwright/test', '@storybook/addon-vitest', '@storybook/test-runner']
+  const hasVitestAddon = RUNNERS.some((r) => devDeps[r])
   const hasTestScript = Object.values(ctx.packageJson?.scripts || {}).some((s) => /vitest|jest/.test(s))
   if (hasA11yAddon) evidence.push('a11y/axe-testtool gevonden in dependencies')
-  if (hasVitestAddon) evidence.push('vitest/jest/storybook-test-addon gevonden in dependencies')
+  if (hasVitestAddon) evidence.push(`testrunner gevonden in dependencies: ${RUNNERS.filter((r) => devDeps[r]).join(', ')}`)
   evidence.push(`npm script dat een testrunner aanroept: ${hasTestScript}`)
 
   const explicitRatio = ctx.componentCount > 0 ? ctx.testFiles.length / ctx.componentCount : 0
@@ -311,8 +398,8 @@ function analyzeTestdekking(ctx) {
 function analyzeOnderhoudsactiviteit(ctx) {
   const evidence = []
   if (ctx.gitLog === null) {
-    evidence.push('geen git-geschiedenis beschikbaar (geen repository of git niet uitvoerbaar)')
-    return row('onderhoudsactiviteit', 0, evidence, 'Geen zichtbare geschiedenis; versiebeheer is niet aanwezig of niet toegankelijk.')
+    evidence.push('geen git-geschiedenis in de geanalyseerde map (bv. een zip-download zonder .git-map)')
+    return nvtRow('onderhoudsactiviteit', evidence, 'Onderhoudsactiviteit is zonder git-geschiedenis niet te meten; dit zegt niets over het project zelf.')
   }
   evidence.push(`totalCommits: ${ctx.gitLog.totalCommits ?? 'onbekend'}`)
   evidence.push(`commitCountLast90Days: ${ctx.gitLog.commitCountLast90Days}`)
@@ -334,6 +421,7 @@ const ANALYZERS = {
   'naamgeving': analyzeNaamgeving,
   'design-tokens': analyzeDesignTokens,
   'compositiepatroon': analyzeCompositiepatroon,
+  'verouderde-componenten': analyzeVerouderdeComponenten,
   'versiebeheer': analyzeVersiebeheer,
   'tooling-integratie': analyzeToolingIntegratie,
   'broncode-toegankelijkheid': analyzeBroncodeToegankelijkheid,
