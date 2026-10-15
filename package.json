@@ -12,21 +12,14 @@
     "./style.css": "./dist/simple-vue-components.css"
   },
   "files": [
-    "dist",
-    "skills",
-    "templates",
-    "bin"
+    "dist"
   ],
-  "bin": {
-    "simple-vue-components": "./bin/cli.mjs"
-  },
   "scripts": {
     "index": "node scripts/generate-index.mjs",
     "stories": "node scripts/generate-stories.mjs",
     "build": "npm run index && vite build",
     "prepack": "npm run build",
     "prepare": "npm run build",
-    "postinstall": "node bin/postinstall.mjs",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build"
   },
