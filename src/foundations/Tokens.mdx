@@ -1,0 +1,54 @@
+import { Meta } from '@storybook/addon-docs/blocks'
+
+<Meta title="Foundations/Design tokens" />
+
+# Design tokens
+
+Design values are CSS custom properties on `:root`, defined in `src/tokens.css` and loaded with the library stylesheet. Use them with `var(--name)`.
+
+## Colors
+
+| Token | Value | Use |
+| --- | --- | --- |
+| `--color_primary` | `#1d4ed8` | Primary brand color |
+| `--color_secondary` | `#475569` | Secondary color |
+| `--color_terciary` | `#0f766e` | Third accent color |
+| `--color_surface` | `#ffffff` | Component background |
+| `--color_surface_muted` | `#f3f4f6` | Hover and subtle backgrounds |
+| `--color_border` | `#e5e7eb` | Borders and dividers |
+| `--color_text` | `#111827` | Body text |
+| `--color_text_muted` | `#6b7280` | Secondary text |
+| `--color_danger` | `#dc2626` | Errors and destructive actions |
+| `--color_success` | `#16a34a` | Success states |
+
+## Sizes
+
+| Token | Value |
+| --- | --- |
+| `--size_s` | `12px` |
+| `--size_m` | `14px` |
+| `--size_l` | `16px` |
+| `--size_ll` | `20px` |
+| `--size_xl` | `24px` |
+
+## Space
+
+Gap between elements.
+
+| Token | Value |
+| --- | --- |
+| `--space_1` | `4px` |
+| `--space_2` | `8px` |
+| `--space_3` | `12px` |
+| `--space_4` | `16px` |
+| `--space_5` | `24px` |
+
+## Spacing
+
+Padding inside a component.
+
+| Token | Value |
+| --- | --- |
+| `--spacing_sm` | `8px` |
+| `--spacing_md` | `16px` |
+| `--spacing_lg` | `24px` |
