@@ -102,7 +102,10 @@ const OVERRIDES = {
   SNotificationBadge: { count: 120 },
   SSidebar: { modelValue: 'home', items: [{ label: 'Home', icon: '⌂', value: 'home' }, { label: 'Stats', icon: '▤', value: 'stats' }] },
   SBottomNav: { modelValue: 'home', items: [{ label: 'Home', icon: '⌂', value: 'home' }, { label: 'Stats', icon: '▤', value: 'stats' }] },
-  SColorSwatches: { modelValue: '#3b82f6' }
+  SColorSwatches: { modelValue: '#3b82f6' },
+  SIcon: { name: 'bookmark' },
+  SDropdownV2: { modelValue: '', options: [{ label: 'All', value: '' }, { label: 'Active', value: 'active' }, { label: 'Inactive', value: 'inactive' }] },
+  SCardV2: { heading: 'Heading', subheading: 'Subheading' }
 }
 
 // Components whose Default story needs actual slot content to show anything at all --
@@ -139,7 +142,10 @@ const SLOT_DEMOS = {
   SBorder: `<div style="padding:0.5em 1em">Bordered content</div>`,
   SRounded: `<div style="width:120px;height:80px;background:#3b82f6"></div>`,
   SColumns: `This text flows across multiple CSS columns. Add enough of it here so more than one column actually fills up, which is the only way to see the column layout doing anything at all.`,
-  SSticky: `<div style="padding:0.5em 1em;background:#eef2ff">Sticky bar</div>`
+  SSticky: `<div style="padding:0.5em 1em;background:#eef2ff">Sticky bar</div>`,
+  SColumn: `<div style="border:1px dashed #9ca3af;padding:0.5em 1em">A</div><div style="border:1px dashed #9ca3af;padding:0.5em 1em">B</div><div style="border:1px dashed #9ca3af;padding:0.5em 1em">C</div>`,
+  SRow: `<div style="border:1px dashed #9ca3af;padding:0.5em 1em">A</div><div style="border:1px dashed #9ca3af;padding:0.5em 1em">B</div><div style="border:1px dashed #9ca3af;padding:0.5em 1em">C</div>`,
+  SCardV2: `Card content`
 }
 
 function toLiteral(value, indent = '  ') {

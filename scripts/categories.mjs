@@ -2,7 +2,7 @@ export const CATEGORIES = {
   Actions: ['SButton', 'SButtonGroup', 'SIconButton', 'SFab', 'SToggleButton', 'SCopyButton', 'SLink'],
   'Form controls': [
     'SFormField', 'SLabel', 'SInput', 'SPasswordInput', 'SNumberInput', 'STextarea', 'SSearchInput',
-    'SAutocomplete', 'SSelect', 'SCheckbox', 'SCheckboxGroup', 'SRadio', 'SRadioGroup', 'SSwitch',
+    'SAutocomplete', 'SSelect', 'SDropdownV2', 'SCheckbox', 'SCheckboxGroup', 'SRadio', 'SRadioGroup', 'SSwitch',
     'SSlider', 'SRangeSlider', 'SToggleGroup', 'SDatePicker', 'STimePicker', 'SColorPicker',
     'SColorSwatches', 'SFileUpload', 'SPinInput', 'STagInput', 'SRating'
   ],
@@ -11,7 +11,7 @@ export const CATEGORIES = {
     'SFlex', 'SStack', 'SHStack', 'SWrap', 'SCenter', 'SSpread', 'SEqualCols', 'SZStack', 'SGridItem',
     'SAutoGrid', 'SBox', 'SGap', 'SPad', 'SInline', 'SAspectRatio', 'SFill', 'SSquare', 'SPosition',
     'SOverlay', 'SFullBleed', 'STruncate', 'SClamp', 'SVisuallyHidden', 'SScrollArea', 'SShowAbove',
-    'SShowBelow', 'SBorder', 'SRounded', 'SColumns', 'SSticky'
+    'SShowBelow', 'SBorder', 'SRounded', 'SColumns', 'SSticky', 'SColumn', 'SRow', 'SCardV2'
   ],
   'Cards & media': [
     'SMediaCard', 'SProfileCard', 'SPricingCard', 'SFlipCard', 'SRibbon', 'SCompare', 'SImage',
@@ -39,7 +39,7 @@ export const CATEGORIES = {
     'SStackedBar', 'SKpiCard', 'SScatterPlot', 'SHorizontalBar', 'SRadarChart'
   ],
   'Typography & misc': [
-    'SHeading', 'SText', 'SBlockquote', 'SCode', 'SKbd', 'SGradientText', 'STypewriter', 'SMarquee'
+    'SHeading', 'SText', 'SBlockquote', 'SCode', 'SKbd', 'SGradientText', 'STypewriter', 'SMarquee', 'SIcon'
   ]
 }
 
